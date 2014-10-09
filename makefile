@@ -1,7 +1,7 @@
 CC = g++
 INCLUDES = -I /opt/tools/eigen-eigen-ffa86ffb5570 
 CFLAGS = -std=c++11
-LIBS = -ladept -fopenmp
+LIBS = -ladept
 SRCS = train.cc utils.cc vecops.cc
 SRCS_TEST = test.cc utils.cc vecops.cc
 SRCS_MAN = train-manual.cc utils.cc vecops.cc
