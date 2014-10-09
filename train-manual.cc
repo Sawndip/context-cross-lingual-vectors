@@ -74,10 +74,10 @@ public:
     Col tgt_vec = convert_to_tgt * hidden;
     if (tgt_vec.rows() == tgt_vec_gold.rows()) {
       /* Grad for the convert_to_lang parameter */
-      /*Mat grad = 2 * (tgt_vec - tgt_vec_gold) * hidden.transpose();
+      Mat grad = 2 * (tgt_vec - tgt_vec_gold) * hidden.transpose();
       ag_convert_to_tgt_mem = ag_convert_to_tgt_mem.array() + grad.array().square();
       Mat mem_sqrt = ag_convert_to_tgt_mem.array().sqrt();
-      convert_to_tgt -= rate * grad.cwiseQuotient(mem_sqrt);*/
+      convert_to_tgt -= rate * grad.cwiseQuotient(mem_sqrt);
       /* Grad for the context vectors */
       /*Col sech2 = Col::Ones(hidden.rows()).array() - hidden.array().square();
       double temp = 2*(tgt_vec - tgt_vec_gold).transpose() * convert_to_tgt * sech2;
