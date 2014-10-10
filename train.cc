@@ -114,7 +114,7 @@ void Train(const string& p_corpus, const string& a_corpus,
            const double& learning_rate, Model* model, adept::Stack* s) {
   for (unsigned i=0; i<num_iter; ++i) {
     cerr << "\nIteration: " << i+1;
-    cerr << "\nLearning rate: " << rate << "\n";
+    cerr << "\nLearning rate: " << learning_rate << "\n";
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
     string p_line, a_line;
     vector<unsigned> src_words, tgt_words;
