@@ -44,6 +44,8 @@ void random_col_map(int, unsigned, mapIntCol*);
 void zero_acol_map(int, unsigned, mapIntACol*);
 void zero_col_map(int, unsigned, mapIntCol*);
 
-void ReadVecsFromFile(string, mapStrUnsigned*, vector<Col>*);
-void ReadVecsFromFile(string, mapStrUnsigned*, vector<ARow>*);
-void ReadVecsFromFile(string, mapStrUnsigned*, vector<Row>*);
+void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Col>*);
+void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Row>*);
+
+void WriteParamsToFile(const string&, const mapIntACol&, const AMat&);
+void ReadParamsFromFile(const string&, mapIntACol*, AMat*);
