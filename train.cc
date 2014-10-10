@@ -1,3 +1,11 @@
+/* 
+  This program learns a mapping between vectors of two languages. 
+  The mappin is expressed as a neural network model and the parameters
+  of the neural network are optimized using Adaptive gradient descent. 
+  
+  The gradient of the error function is calculated using automatic
+  differentiation from library adept.h
+*/
 #include <iostream>
 #include <vector>
 #include <fstream>
@@ -34,14 +42,14 @@ void GetContext(const vector<unsigned>& words, unsigned tgt_word_ix,
 /* Main class definition that learns the word vectors */
 
 class Model {
+
+ public:
   /* The parameters of the model */
   mapIntACol context;
   mapIntCol ag_context_mem;
   AMat convert_to_tgt;
   Mat ag_convert_to_tgt_mem;
-    
-public:
-      
+  /* Word vectors */  
   unsigned window_size, src_vec_len, tgt_vec_len;
   mapStrUnsigned src_vocab, tgt_vocab;
   vector<Col> src_word_vecs, tgt_word_vecs;
@@ -53,9 +61,7 @@ public:
     ReadVecsFromFile(tgt_vec_file, &tgt_vocab, &tgt_word_vecs);
     src_vec_len = src_word_vecs[0].size();
     tgt_vec_len = tgt_word_vecs[0].size();
-  }
-      
-  void InitParams() {
+
     random_acol_map(window_size, src_vec_len, &context);
     zero_col_map(window_size, src_vec_len, &ag_context_mem);
     convert_to_tgt = AMat::Random(tgt_vec_len, src_vec_len);
@@ -65,9 +71,12 @@ public:
   adouble ComputePredError(const mapIntUnsigned& context_words,
                            const Col& tgt_vec_gold) {
     ACol hidden = ACol::Zero(src_vec_len);
-    for (auto it = context_words.begin(); it != context_words.end(); ++it)
-      if (context[it->first].rows() == src_word_vecs[it->second].rows())
-        hidden += ElemwiseProd(context[it->first], src_word_vecs[it->second]);
+    for (auto it = context_words.begin(); it != context_words.end(); ++it) {
+      if (context[it->first].rows() == src_word_vecs[it->second].rows()) {
+        ElemwiseProdSum(context[it->first], src_word_vecs[it->second],
+                        &hidden);
+      }
+    }
     ElemwiseTanh(&hidden);
     ACol tgt_vec = convert_to_tgt * hidden;
     if (tgt_vec.size() == tgt_vec_gold.size())
@@ -101,17 +110,18 @@ public:
 };
 
 void Train(const string& p_corpus, const string& a_corpus,
-           const unsigned& num_iter,
+           const int& num_iter, const int& update_every,
            const double& learning_rate, Model* model, adept::Stack* s) {
   for (unsigned i=0; i<num_iter; ++i) {
-    double rate = learning_rate;///(i+1);
     cerr << "\nIteration: " << i+1;
     cerr << "\nLearning rate: " << rate << "\n";
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
     string p_line, a_line;
     vector<unsigned> src_words, tgt_words;
     unsigned numWords = 0, erroneous_cases = 0;
-    adouble total_error = 0;
+    adouble total_error = 0, semi_error = 0;
+    int accum = 0;
+    s->new_recording();
     if (p_file.is_open() && a_file.is_open()) {
       while (getline(p_file, p_line) && getline(a_file, a_line)) {
         /* Extracting words from sentences */
@@ -136,8 +146,7 @@ void Train(const string& p_corpus, const string& a_corpus,
         }
         /* Read the alignment line */
         vector<string> src_tgt_pairs = split_line(a_line, ' ');
-        unsigned j;
-        for (j = 0; j < src_tgt_pairs.size(); ++j) {
+        for (unsigned j = 0; j < src_tgt_pairs.size(); ++j) {
           vector<string> index_pair = split_line(src_tgt_pairs[j], '-');
           unsigned src_ix = stoi(index_pair[0]);
           unsigned tgt_ix = stoi(index_pair[1]);
@@ -147,14 +156,20 @@ void Train(const string& p_corpus, const string& a_corpus,
             context_words.clear();
             GetContext(src_words, src_ix, model->window_size, &context_words);
             /* Compute error as the squared error */
-            s->new_recording();
             auto tgt_word_vec = model->tgt_word_vecs[tgt_words[tgt_ix]];
-            adouble error = model->ComputePredError(context_words, tgt_word_vec);
+            adouble error = model->ComputePredError(context_words,
+                                                    tgt_word_vec);
             if (error > 0) {
               total_error += error;
-              error.set_gradient(1.0);
-              s->compute_adjoint();
-              model->UpdateParams(rate);
+              semi_error += error;
+              if (++accum == update_every) {
+                semi_error.set_gradient(1.0);
+                s->compute_adjoint();
+                model->UpdateParams(learning_rate);
+                semi_error = 0;
+                accum = 0;
+                s->new_recording();
+              }
             } else { 
               erroneous_cases += 1;
             }
@@ -162,7 +177,6 @@ void Train(const string& p_corpus, const string& a_corpus,
         }
         numWords += tgt_words.size();
         cerr << numWords << "\r";
-        //cerr << int(numWords/1000) << "K\r";
       }
       cerr << "\nError: " << total_error << endl;
       cerr << "Erroneous: " << erroneous_cases << endl;
@@ -176,12 +190,14 @@ void Train(const string& p_corpus, const string& a_corpus,
 }
 
 int main(int argc, char **argv){
-  unsigned num_iter = 5;
-  int window = 2;
-  double learning_rate = 0.5; 
-  if (argc != 5) {
-    cerr << "Usage: "<< argv[0] << " parallel_corpus " << " alignment_corpus " 
-         << " src_vec_corpus " << " tgt_vec_corpus\n";
+  if (argc != 10) {
+    cerr << "Usage: "<< argv[0] << " parallel_corpus " << " alignment_corpus "
+         << " src_vec_corpus " << " tgt_vec_corpus " << " context_size "
+         << " update_every " << " learning_rate " << " num_iter "
+         << " outfilename\n";
+    cerr << "Recommended: " << argv[0] << " parallel_corpus " 
+         << " alignment_corpus " << " src_vec_corpus " << " tgt_vec_corpus "
+         << " 5 " << " 1 " << " 0.5 " << " 1 " << " out.txt\n";
     exit(0);
   }
   
@@ -189,10 +205,16 @@ int main(int argc, char **argv){
   string align_corpus = argv[2];
   string src_vec_corpus = argv[3];
   string tgt_vec_corpus = argv[4];
+  int window = stoi(argv[5]);
+  int update_every = stoi(argv[6]);
+  double learning_rate = stod(argv[7]);
+  int num_iter = stoi(argv[8]);
+  string outfilename = argv[9];
  
-  adept::Stack s; 
+  adept::Stack s;
   Model obj(window, src_vec_corpus, tgt_vec_corpus);
-  obj.InitParams();
-  Train(parallel_corpus, align_corpus, num_iter, learning_rate, &obj, &s);
+  Train(parallel_corpus, align_corpus, num_iter, update_every, learning_rate,
+        &obj, &s);
+  WriteParamsToFile(outfilename, obj.context, obj.convert_to_tgt);
   return 1;
 }
