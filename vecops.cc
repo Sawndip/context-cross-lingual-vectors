@@ -42,6 +42,11 @@ ARow ElemwiseDiff(const ARow& ar, const Row& r) {
   return res;
 }
 
+void ElemwiseProdSum(const ACol& ac, const Col& c, ACol* res) {
+  for (unsigned i = 0; i < c.rows(); ++i)
+    (*res)(i, 0) += c(i, 0) * ac(i, 0);
+}
+
 
 ACol ElemwiseProd(const ACol& ac, const Col& c) {
   ACol res = ACol::Zero(c.rows());

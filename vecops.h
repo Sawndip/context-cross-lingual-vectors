@@ -10,5 +10,6 @@ ARow Prod(const ARow&, const Mat&);
 ARow ElemwiseDiff(const ARow&, const Row&);
 
 ACol ElemwiseProd(const ACol&, const Col&);
+void ElemwiseProdSum(const ACol&, const Col&, ACol*);
 ACol Prod(const ACol&, const Mat&);
 ACol ElemwiseDiff(const ACol&, const Col&);
