@@ -113,8 +113,9 @@ void Train(const string& p_corpus, const string& a_corpus,
            const int& num_iter, const int& update_every,
            const double& learning_rate, Model* model, adept::Stack* s) {
   for (unsigned i=0; i<num_iter; ++i) {
+    double rate = learning_rate / (i + 1);
     cerr << "\nIteration: " << i+1;
-    cerr << "\nLearning rate: " << learning_rate << "\n";
+    cerr << "\nLearning rate: " << rate << "\n";
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
     string p_line, a_line;
     vector<unsigned> src_words, tgt_words;
@@ -165,7 +166,7 @@ void Train(const string& p_corpus, const string& a_corpus,
               if (++accum == update_every) {
                 semi_error.set_gradient(1.0);
                 s->compute_adjoint();
-                model->UpdateParams(learning_rate);
+                model->UpdateParams(rate);
                 semi_error = 0;
                 accum = 0;
                 s->new_recording();
@@ -176,7 +177,7 @@ void Train(const string& p_corpus, const string& a_corpus,
           }
         }
         numWords += tgt_words.size();
-        cerr << numWords << "\r";
+        cerr << (numWords/1000) << "K\r";
       }
       cerr << "\nError: " << total_error << endl;
       cerr << "Erroneous: " << erroneous_cases << endl;
