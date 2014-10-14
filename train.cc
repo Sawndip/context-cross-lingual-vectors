@@ -65,6 +65,7 @@ class Model {
     random_acol_map(window_size, src_vec_len, &context);
     zero_col_map(window_size, src_vec_len, &ag_context_mem);
     convert_to_tgt = AMat::Random(tgt_vec_len, src_vec_len);
+    convert_to_tgt *= 0.6 / sqrt(tgt_vec_len * src_vec_len);
     ag_convert_to_tgt_mem = Mat::Zero(tgt_vec_len, src_vec_len);
   }
 
@@ -79,10 +80,7 @@ class Model {
     }
     ElemwiseTanh(&hidden);
     ACol tgt_vec = convert_to_tgt * hidden;
-    if (tgt_vec.size() == tgt_vec_gold.size())
-      return ElemwiseDiff(tgt_vec, tgt_vec_gold).squaredNorm();
-    else
-      return -1;
+    return ElemwiseDiff(tgt_vec, tgt_vec_gold).squaredNorm();
   }
 
   void UpdateParams(const double& rate) {
@@ -121,7 +119,7 @@ void Train(const string& p_corpus, const string& a_corpus,
     vector<unsigned> src_words, tgt_words;
     unsigned numWords = 0, erroneous_cases = 0;
     adouble total_error = 0, semi_error = 0;
-    int accum = 0;
+    int accum = 0, print_if = 100000, print_count = 0;
     s->new_recording();
     if (p_file.is_open() && a_file.is_open()) {
       while (getline(p_file, p_line) && getline(a_file, a_line)) {
@@ -160,27 +158,27 @@ void Train(const string& p_corpus, const string& a_corpus,
             auto tgt_word_vec = model->tgt_word_vecs[tgt_words[tgt_ix]];
             adouble error = model->ComputePredError(context_words,
                                                     tgt_word_vec);
-            if (error > 0) {
-              total_error += error;
-              semi_error += error;
-              if (++accum == update_every) {
-                semi_error.set_gradient(1.0);
-                s->compute_adjoint();
-                model->UpdateParams(rate);
-                semi_error = 0;
-                accum = 0;
-                s->new_recording();
-              }
-            } else { 
-              erroneous_cases += 1;
+            total_error += error;
+            semi_error += error;
+            if (++accum == update_every) {
+              semi_error.set_gradient(1.0);
+              s->compute_adjoint();
+              model->UpdateParams(rate);
+              semi_error = 0;
+              accum = 0;
+              s->new_recording();
             }
           }
         }
-        numWords += tgt_words.size();
-        cerr << (numWords/1000) << "K\r";
+        numWords += src_tgt_pairs.size();
+        print_count += src_tgt_pairs.size();
+        if (print_count > print_if) {
+          print_count = 0;
+          cerr << "Error per word: "<< total_error/numWords << "\n";
+          numWords = 0;
+          total_error = 0;
+        }
       }
-      cerr << "\nError: " << total_error << endl;
-      cerr << "Erroneous: " << erroneous_cases << endl;
       p_file.close();
       a_file.close();
     } else {

@@ -18,13 +18,13 @@ vector<string> split_line(string& line, char delim) {
 void random_acol_map(int context_len, unsigned vec_len,
                      mapIntACol *result) {
   for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = ACol::Random(vec_len);
+    (*result)[i] = (0.6 / sqrt(vec_len)) * ACol::Random(vec_len);
 }
 
 void random_col_map(int context_len, unsigned vec_len,
                     mapIntCol *result) {
   for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = Col::Random(vec_len);
+    (*result)[i] = (0.6 / sqrt(vec_len)) * Col::Random(vec_len);
 }
 
 void zero_acol_map(int context_len, unsigned vec_len,
