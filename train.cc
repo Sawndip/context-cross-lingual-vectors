@@ -22,6 +22,9 @@
 #include "utils.h"
 #include "vecops.h"
 
+#define RHO 0.95
+#define EPSILON 0.000001
+
 using namespace std;
 using namespace Eigen;
 using adept::adouble;
@@ -33,7 +36,7 @@ void GetContext(const vector<unsigned>& words, unsigned tgt_word_ix,
   for (int i = -window_size; i <= window_size; ++i) {
     int word_index = i + tgt_word_ix;
     if (word_index >= 0 && word_index < words.size()) {
-      if (words[word_index] != -1) // word not in vector vocab
+      if (words[word_index] != -1)  // word not in vector vocab
         context_words[i] = words[word_index];
     }
   }
@@ -46,9 +49,13 @@ class Model {
  public:
   /* The parameters of the model */
   mapIntACol context;
-  mapIntCol ag_context_mem;
   AMat convert_to_tgt;
+  /* Adagrad memory */
+  mapIntCol ag_context_mem;
   Mat ag_convert_to_tgt_mem;
+  /* Adadelta memory */
+  mapIntCol ad_context_mem, ad_g_context_mem;
+  Mat ad_convert_to_tgt_mem, ad_g_convert_to_tgt_mem;
   /* Word vectors */  
   unsigned window_size, src_vec_len, tgt_vec_len;
   mapStrUnsigned src_vocab, tgt_vocab;
@@ -61,12 +68,18 @@ class Model {
     ReadVecsFromFile(tgt_vec_file, &tgt_vocab, &tgt_word_vecs);
     src_vec_len = src_word_vecs[0].size();
     tgt_vec_len = tgt_word_vecs[0].size();
-
+    /* Params init */
     random_acol_map(window_size, src_vec_len, &context);
-    zero_col_map(window_size, src_vec_len, &ag_context_mem);
     convert_to_tgt = AMat::Random(tgt_vec_len, src_vec_len);
     convert_to_tgt *= 0.6 / sqrt(tgt_vec_len * src_vec_len);
+    /* Adagrad init */
+    zero_col_map(window_size, src_vec_len, &ag_context_mem);
     ag_convert_to_tgt_mem = Mat::Zero(tgt_vec_len, src_vec_len);
+    /* Adadelta init */
+    zero_col_map(window_size, src_vec_len, &ad_context_mem);
+    zero_col_map(window_size, src_vec_len, &ad_g_context_mem);
+    ad_convert_to_tgt_mem = Mat::Zero(tgt_vec_len, src_vec_len);
+    ad_g_convert_to_tgt_mem = Mat::Zero(tgt_vec_len, src_vec_len);
   }
 
   adouble ComputePredError(const mapIntUnsigned& context_words,
@@ -83,7 +96,7 @@ class Model {
     return ElemwiseDiff(tgt_vec, tgt_vec_gold).squaredNorm();
   }
 
-  void UpdateParams(const double& rate) {
+  void UpdateParamsAdagrad(const double& rate) {
     for (auto it = context.begin(); it != context.end(); ++it) {
       for (unsigned i = 0; i < src_vec_len; ++i) {
         double g = it->second(i, 0).get_gradient();
@@ -105,6 +118,39 @@ class Model {
     }
   }
 
+  void UpdateParamsAdadelta() {
+    for (auto it = context.begin(); it != context.end(); ++it) {
+      for (unsigned i = 0; i < src_vec_len; ++i) {
+        double g = it->second(i, 0).get_gradient();
+        double accum_g = RHO * ad_g_context_mem[it->first](i, 0);
+        accum_g += (1 - RHO) * g * g;
+        double del = sqrt(ad_context_mem[it->first](i, 0) + EPSILON);
+        del /= sqrt(accum_g + EPSILON);
+        del *= g;
+        it->second(i, 0) -= del;  // Update the variable
+        /* Update memory */
+        ad_g_context_mem[it->first](i, 0) = accum_g;
+        ad_context_mem[it->first](i, 0) = RHO * ad_context_mem[it->first](i, 0);
+        ad_context_mem[it->first](i, 0) += (1 - RHO) * del * del;
+      }
+    }
+
+    for (unsigned i = 0; i < convert_to_tgt.rows(); ++i) {
+      for (unsigned j = 0; j < convert_to_tgt.cols(); ++j) {
+        double g = convert_to_tgt(i, j).get_gradient();
+        double accum_g = RHO * ad_g_convert_to_tgt_mem(i, j) + (1 - RHO) * g * g;
+        double del = sqrt(ad_convert_to_tgt_mem(i, j) + EPSILON);
+        del /= sqrt(accum_g + EPSILON);
+        del *= g;
+        convert_to_tgt(i, j) -= del;  // Update the variable
+        /* Update memory */
+        ad_g_convert_to_tgt_mem(i, j) = accum_g;
+        ad_convert_to_tgt_mem(i, j) = RHO * ad_convert_to_tgt_mem(i, j);
+        ad_convert_to_tgt_mem(i, j) += (1 - RHO) * del * del;
+      }
+    }
+  }
+
 };
 
 void Train(const string& p_corpus, const string& a_corpus,
@@ -113,7 +159,7 @@ void Train(const string& p_corpus, const string& a_corpus,
   for (unsigned i=0; i<num_iter; ++i) {
     double rate = learning_rate / (i + 1);
     cerr << "\nIteration: " << i+1;
-    cerr << "\nLearning rate: " << rate << "\n";
+    //cerr << "\nLearning rate: " << rate << "\n";
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
     string p_line, a_line;
     vector<unsigned> src_words, tgt_words;
@@ -163,7 +209,7 @@ void Train(const string& p_corpus, const string& a_corpus,
             if (++accum == update_every) {
               semi_error.set_gradient(1.0);
               s->compute_adjoint();
-              model->UpdateParams(rate);
+              model->UpdateParamsAdadelta();
               semi_error = 0;
               accum = 0;
               s->new_recording();
