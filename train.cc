@@ -54,19 +54,15 @@ class Model {
     tgt_vec_len = tgt_word_vecs[0].size();
     hidden_len = int(src_vec_len);
     /* Params init */
-    context_self = AMat::Random(hidden_len, src_vec_len); 
-    context_self *= 0.6 / sqrt(hidden_len * src_vec_len);
-    context_other = AMat::Random(hidden_len, src_vec_len);  
-    context_other *= 0.6 / sqrt(hidden_len * src_vec_len);
+    context_self = context_other = 0.6 / sqrt(hidden_len * src_vec_len) *
+                                   AMat::Random(hidden_len, src_vec_len);
     convert_to_tgt = AMat::Random(tgt_vec_len, hidden_len);
     convert_to_tgt *= 0.6 / sqrt(tgt_vec_len * hidden_len);
     /* Adadelta init */
-    ad_context_self = Mat::Zero(hidden_len, src_vec_len);
-    ad_g_context_self = Mat::Zero(hidden_len, src_vec_len);
-    ad_context_other = Mat::Zero(hidden_len, src_vec_len);
-    ad_g_context_other = Mat::Zero(hidden_len, src_vec_len);
-    ad_convert_to_tgt = Mat::Zero(tgt_vec_len, hidden_len);
-    ad_g_convert_to_tgt = Mat::Zero(tgt_vec_len, hidden_len);
+    ad_context_self = ad_g_context_self = ad_context_other = 
+                      ad_g_context_other = Mat::Zero(hidden_len, src_vec_len);
+    ad_convert_to_tgt = ad_g_convert_to_tgt = 
+                        Mat::Zero(tgt_vec_len, hidden_len);
   }
 
   adouble ComputePredError(const mapIntUnsigned& context_words,
@@ -84,9 +80,12 @@ class Model {
   }
 
   void UpdateParamsAdadelta() {
-    AdadeltaMatUpdate(&context_self, &ad_context_self, &ad_g_context_self);
-    AdadeltaMatUpdate(&context_other, &ad_context_other, &ad_g_context_other);
-    AdadeltaMatUpdate(&convert_to_tgt, &ad_convert_to_tgt, &ad_g_convert_to_tgt);
+    AdadeltaMatUpdate(RHO, EPSILON, &context_self, &ad_context_self,
+                      &ad_g_context_self);
+    AdadeltaMatUpdate(RHO, EPSILON, &context_other, &ad_context_other,
+                      &ad_g_context_other);
+    AdadeltaMatUpdate(RHO, EPSILON, &convert_to_tgt, &ad_convert_to_tgt,
+                      &ad_g_convert_to_tgt);
   }
 
 };
