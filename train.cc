@@ -29,35 +29,19 @@ using namespace std;
 using namespace Eigen;
 using adept::adouble;
 
-void GetContext(const vector<unsigned>& words, unsigned tgt_word_ix,
-                int window_size, mapIntUnsigned* t_context_words) {
-  mapIntUnsigned& context_words = *t_context_words;
-  context_words.clear();
-  for (int i = -window_size; i <= window_size; ++i) {
-    int word_index = i + tgt_word_ix;
-    if (word_index >= 0 && word_index < words.size()) {
-      if (words[word_index] != -1)  // word not in vector vocab
-        context_words[i] = words[word_index];
-    }
-  }
-}
-
 /* Main class definition that learns the word vectors */
-
 class Model {
 
  public:
   /* The parameters of the model */
-  mapIntACol context;
+  AMat context_self, context_other;
   AMat convert_to_tgt;
-  /* Adagrad memory */
-  mapIntCol ag_context_mem;
-  Mat ag_convert_to_tgt_mem;
   /* Adadelta memory */
-  mapIntCol ad_context_mem, ad_g_context_mem;
-  Mat ad_convert_to_tgt_mem, ad_g_convert_to_tgt_mem;
-  /* Word vectors */  
-  unsigned window_size, src_vec_len, tgt_vec_len;
+  Mat ad_context_self, ad_g_context_self;
+  Mat ad_context_other, ad_g_context_other;
+  Mat ad_convert_to_tgt, ad_g_convert_to_tgt;
+  /* Word vectors */
+  unsigned window_size, src_vec_len, tgt_vec_len, hidden_len;
   mapStrUnsigned src_vocab, tgt_vocab;
   vector<Col> src_word_vecs, tgt_word_vecs;
       
@@ -68,98 +52,49 @@ class Model {
     ReadVecsFromFile(tgt_vec_file, &tgt_vocab, &tgt_word_vecs);
     src_vec_len = src_word_vecs[0].size();
     tgt_vec_len = tgt_word_vecs[0].size();
+    hidden_len = int(src_vec_len);
     /* Params init */
-    random_acol_map(window_size, src_vec_len, &context);
-    convert_to_tgt = AMat::Random(tgt_vec_len, src_vec_len);
-    convert_to_tgt *= 0.6 / sqrt(tgt_vec_len * src_vec_len);
-    /* Adagrad init */
-    zero_col_map(window_size, src_vec_len, &ag_context_mem);
-    ag_convert_to_tgt_mem = Mat::Zero(tgt_vec_len, src_vec_len);
+    context_self = AMat::Random(hidden_len, src_vec_len); 
+    context_self *= 0.6 / sqrt(hidden_len * src_vec_len);
+    context_other = AMat::Random(hidden_len, src_vec_len);  
+    context_other *= 0.6 / sqrt(hidden_len * src_vec_len);
+    convert_to_tgt = AMat::Random(tgt_vec_len, hidden_len);
+    convert_to_tgt *= 0.6 / sqrt(tgt_vec_len * hidden_len);
     /* Adadelta init */
-    zero_col_map(window_size, src_vec_len, &ad_context_mem);
-    zero_col_map(window_size, src_vec_len, &ad_g_context_mem);
-    ad_convert_to_tgt_mem = Mat::Zero(tgt_vec_len, src_vec_len);
-    ad_g_convert_to_tgt_mem = Mat::Zero(tgt_vec_len, src_vec_len);
+    ad_context_self = Mat::Zero(hidden_len, src_vec_len);
+    ad_g_context_self = Mat::Zero(hidden_len, src_vec_len);
+    ad_context_other = Mat::Zero(hidden_len, src_vec_len);
+    ad_g_context_other = Mat::Zero(hidden_len, src_vec_len);
+    ad_convert_to_tgt = Mat::Zero(tgt_vec_len, hidden_len);
+    ad_g_convert_to_tgt = Mat::Zero(tgt_vec_len, hidden_len);
   }
 
   adouble ComputePredError(const mapIntUnsigned& context_words,
                            const Col& tgt_vec_gold) {
-    ACol hidden = ACol::Zero(src_vec_len);
+    ACol hidden = ACol::Zero(hidden_len);
     for (auto it = context_words.begin(); it != context_words.end(); ++it) {
-      if (context[it->first].rows() == src_word_vecs[it->second].rows()) {
-        ElemwiseProdSum(context[it->first], src_word_vecs[it->second],
-                        &hidden);
-      }
+      if (it->first == 0)
+        ProdSum(context_self, src_word_vecs[it->second], &hidden);
+      else
+        ProdSum(context_other, src_word_vecs[it->second], &hidden);
     }
     ElemwiseTanh(&hidden);
     ACol tgt_vec = convert_to_tgt * hidden;
     return ElemwiseDiff(tgt_vec, tgt_vec_gold).squaredNorm();
   }
 
-  void UpdateParamsAdagrad(const double& rate) {
-    for (auto it = context.begin(); it != context.end(); ++it) {
-      for (unsigned i = 0; i < src_vec_len; ++i) {
-        double g = it->second(i, 0).get_gradient();
-        if (g) {
-          double s = ag_context_mem[it->first](i, 0) += g * g;
-          it->second(i, 0) -= rate * g / sqrt(s);
-        }
-      }
-    }
-
-    for (unsigned i = 0; i < convert_to_tgt.rows(); ++i) {
-      for (unsigned j = 0; j < convert_to_tgt.cols(); ++j) {
-        double g = convert_to_tgt(i, j).get_gradient();
-        if (g) {
-          double s = ag_convert_to_tgt_mem(i, j) += g * g;
-          convert_to_tgt(i, j) -= rate * g / sqrt(s);
-        }
-      }
-    }
-  }
-
   void UpdateParamsAdadelta() {
-    for (auto it = context.begin(); it != context.end(); ++it) {
-      for (unsigned i = 0; i < src_vec_len; ++i) {
-        double g = it->second(i, 0).get_gradient();
-        double accum_g = RHO * ad_g_context_mem[it->first](i, 0);
-        accum_g += (1 - RHO) * g * g;
-        double del = sqrt(ad_context_mem[it->first](i, 0) + EPSILON);
-        del /= sqrt(accum_g + EPSILON);
-        del *= g;
-        it->second(i, 0) -= del;  // Update the variable
-        /* Update memory */
-        ad_g_context_mem[it->first](i, 0) = accum_g;
-        ad_context_mem[it->first](i, 0) = RHO * ad_context_mem[it->first](i, 0);
-        ad_context_mem[it->first](i, 0) += (1 - RHO) * del * del;
-      }
-    }
-
-    for (unsigned i = 0; i < convert_to_tgt.rows(); ++i) {
-      for (unsigned j = 0; j < convert_to_tgt.cols(); ++j) {
-        double g = convert_to_tgt(i, j).get_gradient();
-        double accum_g = RHO * ad_g_convert_to_tgt_mem(i, j) + (1 - RHO) * g * g;
-        double del = sqrt(ad_convert_to_tgt_mem(i, j) + EPSILON);
-        del /= sqrt(accum_g + EPSILON);
-        del *= g;
-        convert_to_tgt(i, j) -= del;  // Update the variable
-        /* Update memory */
-        ad_g_convert_to_tgt_mem(i, j) = accum_g;
-        ad_convert_to_tgt_mem(i, j) = RHO * ad_convert_to_tgt_mem(i, j);
-        ad_convert_to_tgt_mem(i, j) += (1 - RHO) * del * del;
-      }
-    }
+    AdadeltaMatUpdate(&context_self, &ad_context_self, &ad_g_context_self);
+    AdadeltaMatUpdate(&context_other, &ad_context_other, &ad_g_context_other);
+    AdadeltaMatUpdate(&convert_to_tgt, &ad_convert_to_tgt, &ad_g_convert_to_tgt);
   }
 
 };
 
-void Train(const string& p_corpus, const string& a_corpus,
-           const int& num_iter, const int& update_every,
-           const double& learning_rate, Model* model, adept::Stack* s) {
+void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
+           const int& update_every, Model* model, adept::Stack* s) {
   for (unsigned i=0; i<num_iter; ++i) {
-    double rate = learning_rate / (i + 1);
-    cerr << "\nIteration: " << i+1;
-    //cerr << "\nLearning rate: " << rate << "\n";
+    cerr << "\nIteration: " << i+1 << endl;
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
     string p_line, a_line;
     vector<unsigned> src_words, tgt_words;
@@ -177,7 +112,8 @@ void Train(const string& p_corpus, const string& a_corpus,
         tgt_words.clear();
         /* Source sentence */
         for (unsigned j=0; j<src.size(); ++j) {
-          if (model->src_vocab.find(src[j]) != model->src_vocab.end())
+          if (model->src_vocab.find(src[j]) != model->src_vocab.end() &&
+              ConsiderString(src[j]))
             src_words.push_back(model->src_vocab[src[j]]);
           else
             src_words.push_back(-1); // word not in vocab
@@ -218,13 +154,15 @@ void Train(const string& p_corpus, const string& a_corpus,
         }
         numWords += src_tgt_pairs.size();
         print_count += src_tgt_pairs.size();
-        if (print_count > print_if) {
+        /*if (print_count > print_if) {
           print_count = 0;
           cerr << "Error per word: "<< total_error/numWords << "\n";
           numWords = 0;
           total_error = 0;
-        }
+        }*/
+        cerr << numWords << "\r";
       }
+      cerr << "\nError per word: "<< total_error/numWords << "\n";
       p_file.close();
       a_file.close();
     } else {
@@ -235,14 +173,13 @@ void Train(const string& p_corpus, const string& a_corpus,
 }
 
 int main(int argc, char **argv){
-  if (argc != 10) {
+  if (argc != 9) {
     cerr << "Usage: "<< argv[0] << " parallel_corpus " << " alignment_corpus "
          << " src_vec_corpus " << " tgt_vec_corpus " << " context_size "
-         << " update_every " << " learning_rate " << " num_iter "
-         << " outfilename\n";
+         << " update_every " << " num_iter " << " outfilename\n";
     cerr << "Recommended: " << argv[0] << " parallel_corpus " 
          << " alignment_corpus " << " src_vec_corpus " << " tgt_vec_corpus "
-         << " 5 " << " 1 " << " 0.5 " << " 1 " << " out.txt\n";
+         << " 5 " << " 1 " << " 1 " << " out.txt\n";
     exit(0);
   }
   
@@ -252,14 +189,12 @@ int main(int argc, char **argv){
   string tgt_vec_corpus = argv[4];
   int window = stoi(argv[5]);
   int update_every = stoi(argv[6]);
-  double learning_rate = stod(argv[7]);
-  int num_iter = stoi(argv[8]);
-  string outfilename = argv[9];
+  int num_iter = stoi(argv[7]);
+  string outfilename = argv[8];
  
   adept::Stack s;
   Model obj(window, src_vec_corpus, tgt_vec_corpus);
-  Train(parallel_corpus, align_corpus, num_iter, update_every, learning_rate,
-        &obj, &s);
-  WriteParamsToFile(outfilename, obj.context, obj.convert_to_tgt);
+  Train(parallel_corpus, align_corpus, num_iter, update_every, &obj, &s);
+  //WriteParamsToFile(outfilename, obj.context, obj.convert_to_tgt);
   return 1;
 }
