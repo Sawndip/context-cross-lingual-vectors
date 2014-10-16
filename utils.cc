@@ -60,19 +60,6 @@ void AdadeltaMatUpdate(const double& rho, const double& epsilon,
   }
 }
 
-/*void GetSentenceContext(const vector<unsigned>& words, unsigned tgt_word_ix,
-                        mapIntUnsigned* t_context_words) {
-  mapIntUnsigned& context_words = *t_context_words;
-  context_words.clear();
-  for (int i = -window_size; i <= window_size; ++i) {
-    int word_index = i + tgt_word_ix;
-    if (word_index >= 0 && word_index < words.size()) {
-      if (words[word_index] != -1)  // word not in vector vocab
-        context_words[i] = words[word_index];
-    }
-  }
-}*/
-
 /* Try splitting over all whitespaces not just space */
 vector<string> split_line(string& line, char delim) {
   vector<string> words;
