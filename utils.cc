@@ -1,7 +1,77 @@
 #include "utils.h"
+#include "lexical.h"
 
 using namespace std;
 using namespace Eigen;
+
+mapStrBool CONSIDER_STRING;
+
+bool ConsiderString(const string& a) {
+  /* See if already computed */
+  auto it = CONSIDER_STRING.find(a);
+  if (it != CONSIDER_STRING.end())
+    return it->second;
+  /* False if its a punctuation */
+  if (a.length() == 1) {
+    if (a.at(0) >= 33 && a.at(0) <= 64) {
+      CONSIDER_STRING[a] = false;
+      return false;
+    }
+  }
+  /* False if its a stop word */
+  string *f = std::find(STOP_WORDS, STOP_WORDS + NUM_STOP_WORDS, a);
+  if (f != STOP_WORDS + NUM_STOP_WORDS) {
+    CONSIDER_STRING[a] = false;
+    return false;
+  }
+  /* False if it contains a digit */
+  CONSIDER_STRING[a] = !(any_of(a.begin(), a.end(), ::isdigit));
+  return CONSIDER_STRING[a];
+}
+
+void GetContext(const vector<unsigned>& words, unsigned tgt_word_ix,
+                int window_size, mapIntUnsigned* t_context_words) {
+  mapIntUnsigned& context_words = *t_context_words;
+  context_words.clear();
+  for (int i = -window_size; i <= window_size; ++i) {
+    int word_index = i + tgt_word_ix;
+    if (word_index >= 0 && word_index < words.size()) {
+      if (words[word_index] != -1)  // word not in vector vocab
+        context_words[i] = words[word_index];
+    }
+  }
+}
+
+void AdadeltaMatUpdate(const double& rho, const double& epsilon,
+                       AMat* mat, Mat* mat_delta, Mat* mat_grad) {
+  for (unsigned i = 0; i < mat->rows(); ++i) {
+    for (unsigned j = 0; j < mat->cols(); ++j) {
+      double g = (*mat)(i, j).get_gradient();
+      double accum_g = rho * (*mat_grad)(i, j) + (1 - rho) * g * g;
+      double del = sqrt((*mat_delta)(i, j) + epsilon);
+      del /= sqrt(accum_g + epsilon);
+      del *= g;
+      (*mat)(i, j) -= del;  // Update the variable
+      /* Update memory */
+      (*mat_grad)(i, j) = accum_g;
+      (*mat_delta)(i, j) = rho * (*mat_delta)(i, j);
+      (*mat_delta)(i, j) += (1 - rho) * del * del;
+    }
+  }
+}
+
+/*void GetSentenceContext(const vector<unsigned>& words, unsigned tgt_word_ix,
+                        mapIntUnsigned* t_context_words) {
+  mapIntUnsigned& context_words = *t_context_words;
+  context_words.clear();
+  for (int i = -window_size; i <= window_size; ++i) {
+    int word_index = i + tgt_word_ix;
+    if (word_index >= 0 && word_index < words.size()) {
+      if (words[word_index] != -1)  // word not in vector vocab
+        context_words[i] = words[word_index];
+    }
+  }
+}*/
 
 /* Try splitting over all whitespaces not just space */
 vector<string> split_line(string& line, char delim) {
@@ -13,6 +83,12 @@ vector<string> split_line(string& line, char delim) {
       words.push_back(item);
   }
   return words;
+}
+
+void random_amat_map(int context_len, unsigned rows, unsigned cols,
+                     mapIntAMat *result) {
+  for (int i = -context_len; i <= context_len; ++i)
+    (*result)[i] = (0.6 / sqrt(rows*cols)) * AMat::Random(rows, cols);
 }
 
 void random_acol_map(int context_len, unsigned vec_len,
@@ -27,6 +103,19 @@ void random_col_map(int context_len, unsigned vec_len,
     (*result)[i] = (0.6 / sqrt(vec_len)) * Col::Random(vec_len);
 }
 
+void zero_amat_map(int context_len, unsigned rows, unsigned cols,
+                   mapIntAMat *result) {
+  for (int i = -context_len; i <= context_len; ++i)
+    (*result)[i] = AMat::Zero(rows, cols);
+}
+
+void zero_mat_map(int context_len, unsigned rows, unsigned cols,
+                  mapIntMat *result) {
+  for (int i = -context_len; i <= context_len; ++i)
+    (*result)[i] = Mat::Zero(rows, cols);
+}
+
+
 void zero_acol_map(int context_len, unsigned vec_len,
                    mapIntACol *result) {
   for (int i = -context_len; i <= context_len; ++i)
@@ -37,30 +126,6 @@ void zero_col_map(int context_len, unsigned vec_len,
                   mapIntCol *result) {
   for (int i = -context_len; i <= context_len; ++i)
     (*result)[i] = Col::Zero(vec_len);
-}
-
-void random_arow_map(int context_len, unsigned vec_len,
-                     mapIntARow *result) {
-  for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = ARow::Random(vec_len);
-}
-
-void random_row_map(int context_len, unsigned vec_len,
-                     mapIntRow *result) {
-  for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = Row::Random(vec_len);
-}
-
-void zero_arow_map(int context_len, unsigned vec_len,
-                   mapIntARow *result) {
-  for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = ARow::Zero(vec_len);
-}
-
-void zero_row_map(int context_len, unsigned vec_len,
-                  mapIntRow *result) {
-  for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = Row::Zero(vec_len);
 }
 
 void ReadVecsFromFile(const string& vec_file_name, mapStrUnsigned* t_vocab,

@@ -1,9 +1,13 @@
+#ifndef UTILS_H
+#define UTILS_H
+
 #include <iostream>
 #include <vector>
 #include <random>
 #include <fstream>
 #include <functional>
 #include <cmath>
+#include <ctype.h>
 #include <string>
 #include <tr1/unordered_map>
 #include <Eigen/Core>
@@ -24,24 +28,27 @@ typedef Matrix<double, Dynamic, Dynamic> Mat;
 typedef std::tr1::unordered_map<string, unsigned> mapStrUnsigned;
 typedef std::tr1::unordered_map<int, Col> mapIntCol;
 typedef std::tr1::unordered_map<int, ACol> mapIntACol;
+typedef std::tr1::unordered_map<int, Mat> mapIntMat;
+typedef std::tr1::unordered_map<int, AMat> mapIntAMat;
 typedef std::tr1::unordered_map<int, unsigned> mapIntUnsigned;
 
 typedef std::tr1::unordered_map<string, unsigned> mapStrUnsigned;
-typedef std::tr1::unordered_map<int, Row> mapIntRow;
-typedef std::tr1::unordered_map<int, ARow> mapIntARow;
 typedef std::tr1::unordered_map<int, unsigned> mapIntUnsigned;
+typedef std::tr1::unordered_map<string, bool> mapStrBool;
+
+bool ConsiderString(const string& );
+void GetContext(const vector<unsigned>&, unsigned, int, mapIntUnsigned*);
+void AdadeltaMatUpdate(const double&, const double&, AMat*, Mat*, Mat*);
 
 string normalize_word(string&);
 vector<string> split_line(string&, char);
 
-void random_arow_map(int, unsigned, mapIntARow*);
-void random_row_map(int, unsigned, mapIntRow*);
-void zero_arow_map(int, unsigned, mapIntARow*);
-void zero_row_map(int, unsigned, mapIntRow*);
-
 void random_acol_map(int, unsigned, mapIntACol*);
+void random_amat_map(int, unsigned, unsigned, mapIntAMat*);
 void random_col_map(int, unsigned, mapIntCol*);
 void zero_acol_map(int, unsigned, mapIntACol*);
+void zero_amat_map(int, unsigned, unsigned, mapIntAMat*);
+void zero_mat_map(int, unsigned, unsigned, mapIntMat*);
 void zero_col_map(int, unsigned, mapIntCol*);
 
 void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Col>*);
@@ -49,3 +56,5 @@ void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Row>*);
 
 void WriteParamsToFile(const string&, const mapIntACol&, const AMat&);
 void ReadParamsFromFile(const string&, mapIntACol*, AMat*);
+
+#endif
