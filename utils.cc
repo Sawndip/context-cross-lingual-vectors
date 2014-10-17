@@ -4,41 +4,55 @@
 using namespace std;
 using namespace Eigen;
 
-mapStrBool CONSIDER_STRING;
+mapStrBool CONSIDER_CONTEXT;
+mapStrBool CONSIDER_PRED;
 
-bool ConsiderString(const string& a) {
+bool ConsiderForContext(const string& a) {
   /* See if already computed */
-  auto it = CONSIDER_STRING.find(a);
-  if (it != CONSIDER_STRING.end())
+  auto it = CONSIDER_CONTEXT.find(a);
+  if (it != CONSIDER_CONTEXT.end())
     return it->second;
-  /* False if its a punctuation */
-  if (a.length() == 1) {
-    if (a.at(0) >= 33 && a.at(0) <= 64) {
-      CONSIDER_STRING[a] = false;
-      return false;
-    }
+  bool pred_res = ConsiderForPred(a);
+  if (pred_res == false) {
+    CONSIDER_CONTEXT[a] = false;
+    return false;
   }
   /* False if its a stop word */
   string *f = std::find(STOP_WORDS, STOP_WORDS + NUM_STOP_WORDS, a);
   if (f != STOP_WORDS + NUM_STOP_WORDS) {
-    CONSIDER_STRING[a] = false;
+    CONSIDER_CONTEXT[a] = false;
     return false;
   }
+  return CONSIDER_CONTEXT[a];
+}
+
+bool ConsiderForPred(const string& a) {
+  /* See if already computed */
+  auto it = CONSIDER_PRED.find(a);
+  if (it != CONSIDER_PRED.end())
+    return it->second;
+  /* False if its a punctuation */
+  if (a.length() == 1) {
+    if (a.at(0) >= 33 && a.at(0) <= 64) {
+      CONSIDER_PRED[a] = false;
+      return false;
+    }
+  }
   /* False if it contains a digit */
-  CONSIDER_STRING[a] = !(any_of(a.begin(), a.end(), ::isdigit));
-  return CONSIDER_STRING[a];
+  CONSIDER_PRED[a] = !(any_of(a.begin(), a.end(), ::isdigit));
+  return CONSIDER_PRED[a];
 }
 
 void GetContext(const vector<unsigned>& words, const vector<string>& words_raw,
-                unsigned tgt_word_ix,
-                int window_size, mapIntUnsigned* t_context_words) {
+                unsigned tgt_word_ix, int window_size,
+                mapIntUnsigned* t_context_words) {
   mapIntUnsigned& context_words = *t_context_words;
   context_words.clear();
   for (int i = -window_size; i <= window_size; ++i) {
     int word_index = i + tgt_word_ix;
     if (word_index >= 0 && word_index < words.size() &&
-        word_index != tgt_word_ix && ConsiderString(words_raw[word_index])) {
-      if (words[word_index] != -1)  // word not in vector vocab
+        word_index != tgt_word_ix && words[word_index] != -1 &&
+        ConsiderForContext(words_raw[word_index])) {
         context_words[i] = words[word_index];
     }
   }

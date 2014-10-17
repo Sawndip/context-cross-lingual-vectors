@@ -37,7 +37,8 @@ typedef std::tr1::unordered_map<string, unsigned> mapStrUnsigned;
 typedef std::tr1::unordered_map<int, unsigned> mapIntUnsigned;
 typedef std::tr1::unordered_map<string, bool> mapStrBool;
 
-bool ConsiderString(const string& );
+bool ConsiderForContext(const string&);
+bool ConsiderForPred(const string&);
 void GetContext(const vector<unsigned>&, const vector<string>&, unsigned,
                 int, mapIntUnsigned*);
 

@@ -143,8 +143,10 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
           vector<string> index_pair = split_line(src_tgt_pairs[j], '-');
           unsigned src_ix = stoi(index_pair[0]), tgt_ix = stoi(index_pair[1]);
           unsigned src_word = src_words[src_ix], tgt_word = tgt_words[tgt_ix];
-          /* If both words in vocab, this is a training example */
-          if (src_words[src_ix] != -1 && tgt_words[tgt_ix] != -1) {
+          /* If both words in vocab and src word is suitable for prediction
+             this is a training example */
+          if (src_words[src_ix] != -1 && tgt_words[tgt_ix] != -1 &&
+              ConsiderForPred(src[src_ix])) {
             numWords += 1;
             mapIntUnsigned context_words;
             context_words.clear();
