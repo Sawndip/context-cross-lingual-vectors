@@ -55,6 +55,7 @@ void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Col>*);
 void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Row>*);
 
 void WriteParamsToFile(const string&, const mapIntACol&, const AMat&);
+void WriteParamsToFile(const string&, const AMat&, const AMat&, const AMat&); 
 void ReadParamsFromFile(const string&, mapIntACol*, AMat*);
 
 #endif

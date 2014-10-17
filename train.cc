@@ -65,15 +65,15 @@ class Model {
                         Mat::Zero(tgt_vec_len, hidden_len);
   }
 
-  adouble ComputePredError(const mapIntUnsigned& context_words,
+  adouble ComputePredError(const unsigned& src_word,
+                           const mapIntUnsigned& context_words,
                            const Col& tgt_vec_gold) {
+    Col context_vec_sum = Col::Zero(src_vec_len);
     ACol hidden = ACol::Zero(hidden_len);
-    for (auto it = context_words.begin(); it != context_words.end(); ++it) {
-      if (it->first == 0)
-        ProdSum(context_self, src_word_vecs[it->second], &hidden);
-      else
-        ProdSum(context_other, src_word_vecs[it->second], &hidden);
-    }
+    for (auto it = context_words.begin(); it != context_words.end(); ++it)
+      context_vec_sum += src_word_vecs[it->second];  // add the context vectors
+    ProdSum(context_other, context_vec_sum, &hidden);
+    ProdSum(context_self, src_word_vecs[src_word], &hidden);
     ElemwiseTanh(&hidden);
     ACol tgt_vec = convert_to_tgt * hidden;
     return ElemwiseDiff(tgt_vec, tgt_vec_gold).squaredNorm();
@@ -128,8 +128,8 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
         vector<string> src_tgt_pairs = split_line(a_line, ' ');
         for (unsigned j = 0; j < src_tgt_pairs.size(); ++j) {
           vector<string> index_pair = split_line(src_tgt_pairs[j], '-');
-          unsigned src_ix = stoi(index_pair[0]);
-          unsigned tgt_ix = stoi(index_pair[1]);
+          unsigned src_ix = stoi(index_pair[0]), tgt_ix = stoi(index_pair[1]);
+          unsigned src_word = src_words[src_ix], tgt_word = tgt_words[tgt_ix];
           /* If both words in vocab, this is a training example */
           if (src_words[src_ix] != -1 && tgt_words[tgt_ix] != -1) {
             mapIntUnsigned context_words;
@@ -137,7 +137,7 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
             GetContext(src_words, src_ix, model->window_size, &context_words);
             /* Compute error as the squared error */
             auto tgt_word_vec = model->tgt_word_vecs[tgt_words[tgt_ix]];
-            adouble error = model->ComputePredError(context_words,
+            adouble error = model->ComputePredError(src_word, context_words,
                                                     tgt_word_vec);
             total_error += error;
             semi_error += error;
@@ -194,6 +194,7 @@ int main(int argc, char **argv){
   adept::Stack s;
   Model obj(window, src_vec_corpus, tgt_vec_corpus);
   Train(parallel_corpus, align_corpus, num_iter, update_every, &obj, &s);
-  //WriteParamsToFile(outfilename, obj.context, obj.convert_to_tgt);
+  WriteParamsToFile(outfilename, obj.context_self, obj.context_other,
+                    obj.convert_to_tgt);
   return 1;
 }

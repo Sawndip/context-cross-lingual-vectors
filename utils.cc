@@ -35,7 +35,8 @@ void GetContext(const vector<unsigned>& words, unsigned tgt_word_ix,
   context_words.clear();
   for (int i = -window_size; i <= window_size; ++i) {
     int word_index = i + tgt_word_ix;
-    if (word_index >= 0 && word_index < words.size()) {
+    if (word_index >= 0 && word_index < words.size() &&
+        word_index != tgt_word_ix) {
       if (words[word_index] != -1)  // word not in vector vocab
         context_words[i] = words[word_index];
     }
@@ -163,6 +164,42 @@ void WriteParamsToFile(const string& filename, const mapIntACol& vecs,
         outfile << vec(i, 0) << " ";
       outfile << endl;
     }
+    outfile.close();
+    cerr << "Written parameters to: " << filename << endl;
+  } else {
+    cerr << "Could not open: " << filename << endl;
+  }
+}
+
+/* All parameters are matrices which are written in row-major order */
+void WriteParamsToFile(const string& filename, const AMat& self_mat,
+                       const AMat& context_mat, const AMat& convert_mat) {
+  ofstream outfile(filename);
+  if (outfile.is_open()) {
+    outfile.precision(3);
+    outfile << self_mat.rows() << " " << self_mat.cols() << " ";
+    for (unsigned i = 0; i < self_mat.rows(); ++i) {
+      for(unsigned j = 0; j < self_mat.cols(); ++j) {
+        outfile << self_mat(i, j) << " ";
+      }
+    }
+    outfile << endl;
+
+    outfile << context_mat.rows() << " " << context_mat.cols() << " ";
+    for (unsigned i = 0; i < context_mat.rows(); ++i) {
+      for(unsigned j = 0; j < context_mat.cols(); ++j) {
+        outfile << context_mat(i, j) << " ";
+      }
+    }
+    outfile << endl;
+
+    outfile << convert_mat.rows() << " " << convert_mat.cols() << " ";
+    for (unsigned i = 0; i < convert_mat.rows(); ++i) {
+      for(unsigned j = 0; j < convert_mat.cols(); ++j) {
+        outfile << convert_mat(i, j) << " ";
+      }
+    }
+    outfile << endl;
     outfile.close();
     cerr << "Written parameters to: " << filename << endl;
   } else {
