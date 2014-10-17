@@ -133,6 +133,7 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
           unsigned src_word = src_words[src_ix], tgt_word = tgt_words[tgt_ix];
           /* If both words in vocab, this is a training example */
           if (src_words[src_ix] != -1 && tgt_words[tgt_ix] != -1) {
+            numWords += 1;
             mapIntUnsigned context_words;
             context_words.clear();
             GetContext(src_words, src_ix, model->window_size, &context_words);
@@ -152,7 +153,6 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
             }
           }
         }
-        numWords += src_tgt_pairs.size();
         print_count += src_tgt_pairs.size();
         /*if (print_count > print_if) {
           print_count = 0;
