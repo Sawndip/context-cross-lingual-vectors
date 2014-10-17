@@ -38,7 +38,8 @@ typedef std::tr1::unordered_map<int, unsigned> mapIntUnsigned;
 typedef std::tr1::unordered_map<string, bool> mapStrBool;
 
 bool ConsiderString(const string& );
-void GetContext(const vector<unsigned>&, unsigned, int, mapIntUnsigned*);
+void GetContext(const vector<unsigned>&, const vector<string>&, unsigned,
+                int, mapIntUnsigned*);
 
 void AdadeltaMatUpdate(const double&, const double&, AMat*, Mat*, Mat*);
 void AdadeltaUpdate(const double&, const double&, adouble*, double*, double*); 

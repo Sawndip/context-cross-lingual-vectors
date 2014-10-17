@@ -125,8 +125,7 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
         tgt_words.clear();
         /* Source sentence */
         for (unsigned j=0; j<src.size(); ++j) {
-          if (model->src_vocab.find(src[j]) != model->src_vocab.end() &&
-              ConsiderString(src[j]))
+          if (model->src_vocab.find(src[j]) != model->src_vocab.end())
             src_words.push_back(model->src_vocab[src[j]]);
           else
             src_words.push_back(-1); // word not in vocab
@@ -149,7 +148,8 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
             numWords += 1;
             mapIntUnsigned context_words;
             context_words.clear();
-            GetContext(src_words, src_ix, model->window_size, &context_words);
+            GetContext(src_words, src, src_ix, model->window_size,
+                       &context_words);
             /* Compute error as the squared error */
             auto tgt_word_vec = model->tgt_word_vecs[tgt_words[tgt_ix]];
             adouble error = model->ComputePredError(src_word, context_words,

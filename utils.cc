@@ -29,14 +29,15 @@ bool ConsiderString(const string& a) {
   return CONSIDER_STRING[a];
 }
 
-void GetContext(const vector<unsigned>& words, unsigned tgt_word_ix,
+void GetContext(const vector<unsigned>& words, const vector<string>& words_raw,
+                unsigned tgt_word_ix,
                 int window_size, mapIntUnsigned* t_context_words) {
   mapIntUnsigned& context_words = *t_context_words;
   context_words.clear();
   for (int i = -window_size; i <= window_size; ++i) {
     int word_index = i + tgt_word_ix;
     if (word_index >= 0 && word_index < words.size() &&
-        word_index != tgt_word_ix) {
+        word_index != tgt_word_ix && ConsiderString(words_raw[word_index])) {
       if (words[word_index] != -1)  // word not in vector vocab
         context_words[i] = words[word_index];
     }
