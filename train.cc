@@ -52,7 +52,8 @@ class Model {
     ReadVecsFromFile(tgt_vec_file, &tgt_vocab, &tgt_word_vecs);
     src_vec_len = src_word_vecs[0].size();
     tgt_vec_len = tgt_word_vecs[0].size();
-    hidden_len = int(src_vec_len);
+    /* Adjust the size of hidden layer here */
+    hidden_len = int(0.5*src_vec_len);
     /* Params init */
     context_self = context_other = 0.6 / sqrt(hidden_len * src_vec_len) *
                                    AMat::Random(hidden_len, src_vec_len);
@@ -192,9 +193,18 @@ int main(int argc, char **argv){
   string outfilename = argv[8];
  
   adept::Stack s;
-  Model obj(window, src_vec_corpus, tgt_vec_corpus);
-  Train(parallel_corpus, align_corpus, num_iter, update_every, &obj, &s);
-  WriteParamsToFile(outfilename, obj.context_self, obj.context_other,
-                    obj.convert_to_tgt);
+  Model model(window, src_vec_corpus, tgt_vec_corpus);
+
+  cerr << "Model parameters" << endl;
+  cerr << "----------------" << endl;
+  cerr << "Input vector length: " << model.src_vec_len << endl;
+  cerr << "Output vector length: " << model.tgt_vec_len << endl;
+  cerr << "Hidden layer length: " << model.hidden_len << endl;
+  cerr << "Context window: " << model.window_size << endl;
+  cerr << "----------------" << endl;
+
+  Train(parallel_corpus, align_corpus, num_iter, update_every, &model, &s);
+  WriteParamsToFile(outfilename, model.context_self, model.context_other,
+                    model.convert_to_tgt);
   return 1;
 }
