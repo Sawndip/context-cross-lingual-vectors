@@ -61,6 +61,20 @@ void AdadeltaMatUpdate(const double& rho, const double& epsilon,
   }
 }
 
+void AdadeltaUpdate(const double& rho, const double& epsilon,
+                    adouble* d, double* d_delta, double* d_grad) {
+  double g = d->get_gradient();
+  double accum_g = rho * (*d_grad) + (1 - rho) * g * g;
+  double del = sqrt((*d_delta) + epsilon);
+  del /= sqrt(accum_g + epsilon);
+  del *= g;
+  *d -= del;  // Update the variable
+  /* Update memory */
+  *d_grad = accum_g;
+  *d_delta = rho * (*d_delta);
+  *d_delta += (1 - rho) * del * del;
+}
+
 /* Try splitting over all whitespaces not just space */
 vector<string> split_line(string& line, char delim) {
   vector<string> words;
@@ -202,6 +216,23 @@ void WriteParamsToFile(const string& filename, const AMat& self_mat,
     outfile << endl;
     outfile.close();
     cerr << "Written parameters to: " << filename << endl;
+  } else {
+    cerr << "Could not open: " << filename << endl;
+  }
+}
+
+void ReadEntropicWords(const string& filename, const mapStrUnsigned& vocab,
+                       mapUnsUns* res) {
+  ifstream infile(filename);
+  if (infile.is_open()) {
+    string line;
+    while (getline(infile, line)) {
+      auto it = vocab.find(line);
+      if (it != vocab.end())
+        (*res)[it->second] = 0;
+    }
+    infile.close();
+    cerr << "Read entropic words from: " << filename << endl;
   } else {
     cerr << "Could not open: " << filename << endl;
   }

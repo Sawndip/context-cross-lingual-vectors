@@ -12,6 +12,7 @@
 #include <functional>
 #include <numeric>
 #include <cmath>
+#include <cstdlib>
 #include <time.h>
 #include <string>
 #include <tr1/unordered_map>
@@ -36,12 +37,14 @@ class Model {
   /* The parameters of the model */
   AMat context_self, context_other;
   AMat convert_to_tgt;
+  adouble bias;
   /* Adadelta memory */
   Mat ad_context_self, ad_g_context_self;
   Mat ad_context_other, ad_g_context_other;
   Mat ad_convert_to_tgt, ad_g_convert_to_tgt;
+  double ad_bias, ad_g_bias;
   /* Word vectors */
-  unsigned window_size, src_vec_len, tgt_vec_len, hidden_len;
+  unsigned window_size, src_vec_len, tgt_vec_len, hidden_len, hidden_len_bias;
   mapStrUnsigned src_vocab, tgt_vocab;
   vector<Col> src_word_vecs, tgt_word_vecs;
       
@@ -54,16 +57,19 @@ class Model {
     tgt_vec_len = tgt_word_vecs[0].size();
     /* Adjust the size of hidden layer here */
     hidden_len = int(0.5*src_vec_len);
+    hidden_len_bias = hidden_len + 1;
     /* Params init */
     context_self = context_other = 0.6 / sqrt(hidden_len * src_vec_len) *
                                    AMat::Random(hidden_len, src_vec_len);
-    convert_to_tgt = AMat::Random(tgt_vec_len, hidden_len);
-    convert_to_tgt *= 0.6 / sqrt(tgt_vec_len * hidden_len);
+    convert_to_tgt = AMat::Random(tgt_vec_len, hidden_len_bias);
+    convert_to_tgt *= 0.6 / sqrt(tgt_vec_len * hidden_len_bias);
+    bias = rand() / RAND_MAX;
     /* Adadelta init */
     ad_context_self = ad_g_context_self = ad_context_other = 
                       ad_g_context_other = Mat::Zero(hidden_len, src_vec_len);
     ad_convert_to_tgt = ad_g_convert_to_tgt = 
-                        Mat::Zero(tgt_vec_len, hidden_len);
+                        Mat::Zero(tgt_vec_len, hidden_len_bias);
+    double ad_bias = ad_g_bias = 0;
   }
 
   adouble ComputePredError(const unsigned& src_word,
@@ -75,8 +81,14 @@ class Model {
       context_vec_sum += src_word_vecs[it->second];  // add the context vectors
     ProdSum(context_other, context_vec_sum, &hidden);
     ProdSum(context_self, src_word_vecs[src_word], &hidden);
-    ElemwiseTanh(&hidden);
-    ACol tgt_vec = convert_to_tgt * hidden;
+    /* Add bias in the hidden layer */
+    ACol hidden_bias = ACol::Zero(hidden_len_bias);
+    for (unsigned i = 0; i < hidden_len; ++i)
+      hidden_bias(i, 0) = hidden(i, 0);
+    hidden_bias(hidden_len_bias - 1, 0) = bias;
+    /* Non-linearity */
+    ElemwiseTanh(&hidden_bias);
+    ACol tgt_vec = convert_to_tgt * hidden_bias;  // predicted output
     return ElemwiseDiff(tgt_vec, tgt_vec_gold).squaredNorm();
   }
 
@@ -87,6 +99,7 @@ class Model {
                       &ad_g_context_other);
     AdadeltaMatUpdate(RHO, EPSILON, &convert_to_tgt, &ad_convert_to_tgt,
                       &ad_g_convert_to_tgt);
+    AdadeltaUpdate(RHO, EPSILON, &bias, &ad_bias, &ad_g_bias);
   }
 
 };
@@ -100,7 +113,7 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
     vector<unsigned> src_words, tgt_words;
     unsigned numWords = 0, erroneous_cases = 0;
     adouble total_error = 0, semi_error = 0;
-    int accum = 0, print_if = 100000, print_count = 0;
+    int accum = 0;
     s->new_recording();
     if (p_file.is_open() && a_file.is_open()) {
       while (getline(p_file, p_line) && getline(a_file, a_line)) {
@@ -153,13 +166,6 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
             }
           }
         }
-        print_count += src_tgt_pairs.size();
-        /*if (print_count > print_if) {
-          print_count = 0;
-          cerr << "Error per word: "<< total_error/numWords << "\n";
-          numWords = 0;
-          total_error = 0;
-        }*/
         cerr << numWords << "\r";
       }
       cerr << "\nError per word: "<< total_error/numWords << "\n";
@@ -199,7 +205,7 @@ int main(int argc, char **argv){
   cerr << "----------------" << endl;
   cerr << "Input vector length: " << model.src_vec_len << endl;
   cerr << "Output vector length: " << model.tgt_vec_len << endl;
-  cerr << "Hidden layer length: " << model.hidden_len << endl;
+  cerr << "Hidden layer length: " << model.hidden_len_bias << endl;
   cerr << "Context window: " << model.window_size << endl;
   cerr << "----------------" << endl;
 

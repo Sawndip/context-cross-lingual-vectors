@@ -31,6 +31,7 @@ typedef std::tr1::unordered_map<int, ACol> mapIntACol;
 typedef std::tr1::unordered_map<int, Mat> mapIntMat;
 typedef std::tr1::unordered_map<int, AMat> mapIntAMat;
 typedef std::tr1::unordered_map<int, unsigned> mapIntUnsigned;
+typedef std::tr1::unordered_map<unsigned, unsigned> mapUnsUns;
 
 typedef std::tr1::unordered_map<string, unsigned> mapStrUnsigned;
 typedef std::tr1::unordered_map<int, unsigned> mapIntUnsigned;
@@ -38,7 +39,9 @@ typedef std::tr1::unordered_map<string, bool> mapStrBool;
 
 bool ConsiderString(const string& );
 void GetContext(const vector<unsigned>&, unsigned, int, mapIntUnsigned*);
+
 void AdadeltaMatUpdate(const double&, const double&, AMat*, Mat*, Mat*);
+void AdadeltaUpdate(const double&, const double&, adouble*, double*, double*); 
 
 string normalize_word(string&);
 vector<string> split_line(string&, char);
@@ -53,6 +56,7 @@ void zero_col_map(int, unsigned, mapIntCol*);
 
 void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Col>*);
 void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Row>*);
+void ReadEntropicWords(const string&, const mapStrUnsigned&, mapUnsUns*);
 
 void WriteParamsToFile(const string&, const mapIntACol&, const AMat&);
 void WriteParamsToFile(const string&, const AMat&, const AMat&, const AMat&); 
