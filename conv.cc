@@ -104,28 +104,21 @@ class Model {
   }
 
   adouble ComputePredError(const unsigned& src_word_id,
-                           const vector<int>& sentence,
-                           const Col& tgt_vec_gold) {
+                           const Col& tgt_vec_gold, Mat* sent_mat) {
     /* Make a sentence matrix by appending all word vectors
        Ignore all the noisy words (denoted by -1) */
-    int noisy_words = count(sentence.begin(), sentence.end(), -1), index = 0;
-    Mat sent_mat(src_len, sentence.size() - noisy_words);
-    Col zero = Col::Zero(src_len);
-    for (unsigned i = 0; i < sentence.size(); ++i) {
-      if (i == src_word_id) {
-        sent_mat.col(index++) = zero;
-      } else if (sentence[i] != -1) {
-        sent_mat.col(index++) = src_word_vecs[sentence[i]];
-      }
-    }
+    Col zero = Col::Zero(src_len), orig_col = sent_mat->col(src_word_id);
+    sent_mat->col(src_word_id) = zero;  // Set predict word to be zero
     /* Build the prediction model here */
     AMat convolved, k_maxed;
     ACol non_lin;
-    convolve_wide(sent_mat, p1, &convolved);  // Wide convolution with the filter
+    convolve_wide(*sent_mat, p1, &convolved);  // Wide convolution with filter
     k_max(convolved, &k_maxed);  // k-max layer
     non_lin = k_maxed * p2;  // Reduction to a vector
     ElemwiseTanh(&non_lin);  // Non-linearity
     ACol tgt_vec = p3 * non_lin;  // Predicted output
+    /* Prediction done, replace the predict word column */
+    sent_mat->col(src_word_id) = orig_col;
     return ElemwiseDiff(tgt_vec, tgt_vec_gold).squaredNorm();
   }
 
@@ -144,7 +137,7 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
     string p_line, a_line;
     vector<int> src_words, tgt_words;
-    unsigned numWords = 0, erroneous_cases = 0;
+    unsigned num_words = 0, erroneous_cases = 0;
     adouble total_error = 0, semi_error = 0;
     int accum = 0;
     s->new_recording();
@@ -164,11 +157,12 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
               ConsiderForPred(src[j])) {
             src_words.push_back(model->src_vocab[src[j]]);
             old_to_new[j] = index++;
-            /* Make more changes here */
           }
-          else
-            src_words.push_back(-1); // word not in vocab
         }
+        /* Make a sentence matrix */
+        Mat src_sent_mat(model->src_len, src_words.size());
+        for (unsigned i = 0; i < src_words.size(); ++i)
+          src_sent_mat.col(i) = model->src_word_vecs[src_words[i]];
         /* Target sentence */
         for (unsigned j=0; j<tgt.size(); ++j) {
           if (model->tgt_vocab.find(tgt[j]) != model->tgt_vocab.end())
@@ -182,15 +176,14 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
           vector<string> index_pair = split_line(src_tgt_pairs[j], '-');
           unsigned src_ix = stoi(index_pair[0]), tgt_ix = stoi(index_pair[1]);
           unsigned src_word = src_words[src_ix], tgt_word = tgt_words[tgt_ix];
-          /* If both words in vocab and src word is suitable for prediction
-             this is a training example */
-          if (src_words[src_ix] != -1 && tgt_words[tgt_ix] != -1) {
-            numWords += 1;
-            mapIntUnsigned context_words;
+          /* If both words are in the cleaned sentences, train on this */
+          if (tgt_words[tgt_ix] != -1 &&
+              old_to_new.find(src_ix) != old_to_new.end()) {
+            src_ix = old_to_new[src_ix];
             /* Compute error as the squared error */
             auto tgt_word_vec = model->tgt_word_vecs[tgt_word];
-            adouble error = model->ComputePredError(src_ix, src_words,
-                                                    tgt_word_vec);
+            adouble error = model->ComputePredError(src_ix, tgt_word_vec,
+                                                    &src_sent_mat);
             total_error += error;
             semi_error += error;
             if (++accum == update_every) {
@@ -201,11 +194,12 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
               accum = 0;
               s->new_recording();
             }
+            num_words += 1;
           }
         }
-        cerr << numWords << "\r";
+        cerr << num_words << "\r";
       }
-      cerr << "\nError per word: "<< total_error/numWords << "\n";
+      cerr << "\nError per word: "<< total_error/num_words << "\n";
       p_file.close();
       a_file.close();
     } else {
