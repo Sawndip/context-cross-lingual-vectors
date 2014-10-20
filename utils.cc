@@ -23,6 +23,7 @@ bool ConsiderForContext(const string& a) {
     CONSIDER_CONTEXT[a] = false;
     return false;
   }
+  CONSIDER_CONTEXT[a] = true;
   return CONSIDER_CONTEXT[a];
 }
 
