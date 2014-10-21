@@ -40,12 +40,13 @@ class Model {
      p2 -- Convert output after k-max to column
      p3 -- Convert after non-linearity to target vector
   */
-  AMat p1, p2, p3;
-  int kbest;
+  AMat f11, f12, f21, f22, p2, p3;
   /* Adadelta memory */
-  Mat ad_p1, ad_g_p1, ad_p2, ad_g_p2, ad_p3, ad_g_p3;
+  Mat ad_f11, ad_g_f11, ad_f12, ad_g_f12, ad_f21, ad_g_f21, ad_f22, ad_g_f22;
+  Mat ad_p2, ad_g_p2, ad_p3, ad_g_p3;
   /* Word vectors */
-  unsigned window_size, src_len, tgt_len, hidden_len, filter_len;
+  unsigned window_size, src_len, tgt_len, hidden_len;
+  unsigned filter_len1, filter_len2, kbest1, kbest2;
   mapStrUnsigned src_vocab, tgt_vocab;
   vector<Col> src_word_vecs, tgt_word_vecs;
       
@@ -55,54 +56,29 @@ class Model {
     ReadVecsFromFile(tgt_vec_file, &tgt_vocab, &tgt_word_vecs);
     src_len = src_word_vecs[0].size();
     tgt_len = tgt_word_vecs[0].size();
-    filter_len = filt_len;
-    kbest = kmax;
-    /* Params init */
-    p1 = (0.6 / sqrt(filter_len * src_len)) * 
-         AMat::Random(src_len, filter_len);
-    p2 = (0.6 / sqrt(kbest)) * AMat::Random(kbest, 1);
-    p3 = (0.6 / sqrt(tgt_len * src_len)) * AMat::Random(tgt_len, src_len);
-    /* Adadelta init */
-    ad_p1 = ad_g_p1 = Mat::Zero(src_len, filter_len);
-    ad_p2 = ad_g_p2 = Mat::Zero(kbest, 1);
-    ad_p3 = ad_g_p3 = Mat::Zero(tgt_len, src_len);
-  }
-
-  void convolve_narrow(const Mat& mat, const AMat& filter, AMat* res) {
-    /* Sentence should be greater than filter length */
-    if (mat.rows() != filter.rows() || mat.cols() < filter.cols()) {
-      cerr << "Incompatible matrix dimensions." << endl;
-      cerr << "Matrix: " << mat.rows() << " " << mat.cols() << endl;
-      cerr << "Filter: " << filter.rows() << " " << filter.cols() << endl;
+    filter_len1 = filt_len, filter_len2 = filt_len - 1;
+    kbest1 = kmax, kbest2 = kmax - 2;
+    if (filter_len2 <= 1 || kbest2 < 1) {
+      cerr << "Minimum filter len: " << 3 << endl;
+      cerr << "Minimum max len: " << 3 << endl;
       exit(0);
     }
-    unsigned slice_len = filter.cols();
-    (*res) = AMat::Zero(mat.rows(), mat.cols() - slice_len + 1);
-    for (unsigned i = 0; i < res->rows(); ++i) {
-      for (unsigned j = 0; j < res->cols(); ++j) {
-        (*res)(i, j) = DotProdRow(filter.row(i),
-                                  mat.block(i, j, 1, slice_len));
-      }
-    }
-  }
-
-  void convolve_wide(const Mat& mat, const AMat& filter, AMat* res) {
-    /* Append extra zero vectors at the end and beginning of sentence
-       for wide convolution */
-    Mat zeros = Mat::Zero(mat.rows(), filter.cols() - 1);
-    Mat new_sent(mat.rows(), mat.cols() + 2 * zeros.cols());
-    new_sent << zeros, mat, zeros;
-    convolve_narrow(new_sent, filter, res);
-  }
-
-  void max(const AMat& mat, AMat* res) {
-    if (kbest == 1) {
-      (*res) = mat.rowwise().maxCoeff();
-    } else {
-      (*res) = AMat(mat.rows(), kbest);
-      for (unsigned i = 0; i < mat.rows(); ++i)
-        res->row(i) = TopKVals(mat.row(i), kbest);
-    }
+    /* Params init */
+    f11 = (0.6 / sqrt(filter_len1 * src_len)) * AMat::Random(src_len,
+                                                             filter_len1);
+    f12 = (0.6 / sqrt(filter_len1 * src_len)) * AMat::Random(src_len,
+                                                             filter_len1);
+    f21 = (0.6 / sqrt(filter_len2 * src_len)) * AMat::Random(src_len,
+                                                             filter_len2);
+    f22 = (0.6 / sqrt(filter_len2 * src_len)) * AMat::Random(src_len,
+                                                             filter_len2);
+    p2 = (0.6 / sqrt(kbest2)) * AMat::Random(kbest2, 1);
+    p3 = (0.6 / sqrt(tgt_len * src_len)) * AMat::Random(tgt_len, src_len);
+    /* Adadelta init */
+    ad_f11 = ad_g_f11 = ad_f12 = ad_g_f12 = Mat::Zero(src_len, filter_len1);
+    ad_f21 = ad_g_f21 = ad_f22 = ad_g_f22 = Mat::Zero(src_len, filter_len2);
+    ad_p2 = ad_g_p2 = Mat::Zero(kbest2, 1);
+    ad_p3 = ad_g_p3 = Mat::Zero(tgt_len, src_len);
   }
 
   adouble ComputePredError(const unsigned& src_word_id,
@@ -111,16 +87,28 @@ class Model {
     ACol azero = ACol::Zero(src_len);
     sent_mat->col(src_word_id) = zero;  // Set predict word to be zero
     /* Build the prediction model here */
-    AMat convolved, maxed;
+    AMat convolved11, convolved12, convolved21, convolved22;
+    AMat maxed11, maxed12, maxed21, maxed22;
     ACol non_lin;
     /* Layer 1 convolution */
-    convolve_wide(*sent_mat, p1, &convolved);
+    convolve_wide(*sent_mat, f11, &convolved11);
+    convolve_wide(*sent_mat, f12, &convolved12);
     /* k-max operation */
-    max(convolved, &maxed); 
-    non_lin = maxed * p2;  // Reduction to a vector
+    max(convolved11, kbest1, &maxed11);
+    max(convolved12, kbest1, &maxed12);
+    ElemwiseSigmoid(&maxed11);
+    ElemwiseSigmoid(&maxed12);
+    /* Layer 2 convolution */
+    convolve_wide(maxed11, f21, &convolved21);
+    convolve_wide(maxed12, f22, &convolved22);
+    /* k-max operation */
+    max(convolved21, kbest2, &maxed21);
+    max(convolved22, kbest2, &maxed22);
+    /* Add the maxed matrices */
+    non_lin = (maxed21 + maxed22) * p2;  // Reduction to a vector
     /* Add source word vector before non-linearity */
     non_lin = ElemwiseDiff(non_lin, -1 * orig_col);
-    ElemwiseHardTanh(&non_lin);  // Non-linearity
+    ElemwiseSigmoid(&non_lin);  // Non-linearity
     /* Convert hidden layer to tgt vector dimensions */
     ACol tgt_vec = p3 * non_lin; 
     /* Prediction done, replace the predict word column */
@@ -129,7 +117,10 @@ class Model {
   }
 
   void UpdateParams() {
-    AdadeltaMatUpdate(RHO, EPSILON, &p1, &ad_p1, &ad_g_p1);
+    AdadeltaMatUpdate(RHO, EPSILON, &f11, &ad_f11, &ad_g_f11);
+    AdadeltaMatUpdate(RHO, EPSILON, &f12, &ad_f12, &ad_g_f12);
+    AdadeltaMatUpdate(RHO, EPSILON, &f21, &ad_f21, &ad_g_f21);
+    AdadeltaMatUpdate(RHO, EPSILON, &f22, &ad_f22, &ad_g_f22);
     AdadeltaMatUpdate(RHO, EPSILON, &p2, &ad_p2, &ad_g_p2);
     AdadeltaMatUpdate(RHO, EPSILON, &p3, &ad_p3, &ad_g_p3);
   }
@@ -239,15 +230,21 @@ int main(int argc, char **argv){
   adept::Stack s;
   Model model(filt_len, kmax, src_vec_corpus, tgt_vec_corpus);
 
-  cerr << "Model parameters" << endl;
+  cerr << "Model specification" << endl;
   cerr << "----------------" << endl;
   cerr << "Input vector length: " << model.src_len << endl;
-  cerr << "Filter length: " << model.filter_len << endl;
-  cerr << "k-best: " << model.kbest << endl;
+  cerr << "Filter 1 length: " << model.filter_len1 << endl;
+  cerr << "k-best 1: " << model.kbest1 << endl;
+  cerr << "Filter 2 length: " << model.filter_len2 << endl;
+  cerr << "k-best 2: " << model.kbest2 << endl;
   cerr << "Output vector length: " << model.tgt_len << endl;
   cerr << "----------------" << endl;
+  cerr << "Total parameters: " << (model.src_len * model.filter_len1 * 2 +
+                                   model.src_len * model.filter_len2 * 2 +
+                                   model.kbest2 +
+                                   model.src_len * model.tgt_len) << endl;
 
   Train(parallel_corpus, align_corpus, num_iter, update_every, &model, &s);
-  WriteParamsToFile(outfilename, model.p1, model.p2, model.p3);
+  //WriteParamsToFile(outfilename, model.p11, model.p2, model.p3);
   return 1;
 }
