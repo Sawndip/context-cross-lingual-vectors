@@ -58,8 +58,8 @@ ARow TopKVals(ARow r, int k) {
   }
   vector<adouble> temp;
   for (int i = 0; i < r.cols(); ++i)
-    temp.push_back(r[i]);
-  nth_element(temp.begin(), temp.end()+k-1, temp.end(),
+    temp.push_back(r(0, i));
+  nth_element(temp.begin(), temp.begin()+k-1, temp.end(),
               std::greater<adouble>());
   adouble kth_element = temp[k-1];
   /* Collect all elements >= kth_element */
