@@ -45,6 +45,8 @@ void GetContext(const vector<unsigned>&, const vector<string>&, unsigned,
 void AdadeltaMatUpdate(const double&, const double&, AMat*, Mat*, Mat*);
 void AdadeltaUpdate(const double&, const double&, adouble*, double*, double*); 
 
+ARow TopKVals(ARow, int);
+
 string normalize_word(string&);
 vector<string> split_line(string&, char);
 

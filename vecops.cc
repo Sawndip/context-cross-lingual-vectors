@@ -1,5 +1,13 @@
 #include "utils.h"
 
+void ElemwiseHardTanh(ACol* v) {
+  for (unsigned i = 0; i < v->cols(); ++i)
+    if ((*v)(i, 0) < -1)
+      (*v)(i, 0) = -1;
+    else if ((*v)(i, 0) > 1)
+      (*v)(i, 0) = 1;
+}
+
 void ElemwiseTanh(Col* v) {
   for (unsigned i = 0; i < v->cols(); ++i)
     (*v)(i, 0) = tanh((*v)(i, 0));
@@ -15,12 +23,24 @@ void ElemwiseProdSum(const ACol& ac, const Col& c, ACol* res) {
     (*res)(i, 0) += c(i, 0) * ac(i, 0);
 }
 
-adouble DotProd(const ARow& a, const Row& b) {
+adouble DotProdRow(const ARow& a, const Row& b) {
   adouble sum = 0;
   for (unsigned i = 0; i < a.cols(); ++i)
     sum += a(0, i) * b(0, i);
   return sum;
 }
+
+adouble DotProdCol(const ACol& a, const Col& b) {
+  adouble sum = 0;
+  for (unsigned i = 0; i < a.rows(); ++i)
+    sum += a(i, 0) * b(i, 0);
+  return sum;
+}
+
+adouble CosineSim(const ACol& ac, const Col& c) {
+  return DotProdCol(ac, c)/sqrt(ac.squaredNorm() * c.squaredNorm());
+}
+
 
 
 ACol Prod(const AMat& mat, const Col& c) {

@@ -1,3 +1,5 @@
+#include <queue>
+
 #include "utils.h"
 #include "lexical.h"
 
@@ -42,6 +44,31 @@ bool ConsiderForPred(const string& a) {
   /* False if it contains a digit */
   CONSIDER_PRED[a] = !(any_of(a.begin(), a.end(), ::isdigit));
   return CONSIDER_PRED[a];
+}
+
+ARow TopKVals(ARow r, int k) {
+  ARow res(k);
+  /* If the row size <= k, put zeros on the extra columns */
+  if (r.cols() <= k) {
+    for (int i = 0; i < res.cols(); ++i) {
+      if (i < r.cols()) res(0, i) = r(0, i);
+      else res(0, i) = 0;
+    }
+    return res;
+  }
+  vector<adouble> temp;
+  for (int i = 0; i < r.cols(); ++i)
+    temp.push_back(r[i]);
+  nth_element(temp.begin(), temp.end()+k-1, temp.end(),
+              std::greater<adouble>());
+  adouble kth_element = temp[k-1];
+  /* Collect all elements >= kth_element */
+  int index = 0;
+  for (int i = 0; i < r.cols(); ++i) {
+    if (index >= res.cols()) return res;
+    if (r[i] >= kth_element) res(0, index++) = r[i];
+  }
+  return res;
 }
 
 void GetContext(const vector<unsigned>& words, const vector<string>& words_raw,
