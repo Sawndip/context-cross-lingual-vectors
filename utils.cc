@@ -50,7 +50,7 @@ ARow TopKVals(ARow r, int k) {
   ARow res(k);
   /* If the row size <= k, put zeros on the extra columns */
   if (r.cols() <= k) {
-    for (int i = 0; i < res.cols(); ++i) {
+    for (int i = 0; i < k; ++i) {
       if (i < r.cols()) res(0, i) = r(0, i);
       else res(0, i) = 0;
     }
