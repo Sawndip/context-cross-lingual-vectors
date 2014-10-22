@@ -72,7 +72,7 @@ void convolve_wide(const AMat& mat, const AMat& filter, AMat* res) {
   convolve_narrow(new_sent, filter, res);
 }
 
-void max(const AMat& mat, const int& k, AMat* res) {
+void Max(const AMat& mat, const int& k, AMat* res) {
   if (k == 1) {
     (*res) = mat.rowwise().maxCoeff();
   } else {

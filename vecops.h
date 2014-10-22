@@ -8,7 +8,7 @@ void convolve_narrow(const AMat&, const AMat&, AMat*);
 void convolve_wide(const Mat&, const AMat&, AMat*);
 void convolve_wide(const AMat&, const AMat&, AMat*);
 
-void max(const AMat&, const int&, AMat*);
+void Max(const AMat&, const int&, AMat*);
 
 void ElemwiseSigmoid(AMat*);
 void ElemwiseSigmoid(ACol*);

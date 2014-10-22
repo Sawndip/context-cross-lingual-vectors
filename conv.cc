@@ -36,14 +36,16 @@ class Model {
 
  public:
   /* The parameters of the model
-     p1 -- filter
      p2 -- Convert output after k-max to column
      p3 -- Convert after non-linearity to target vector
   */
   AMat f11, f12, f21, f22, p2, p3;
+  ACol f11_b, f12_b, f21_b, f22_b;
   /* Adadelta memory */
   Mat ad_f11, ad_g_f11, ad_f12, ad_g_f12, ad_f21, ad_g_f21, ad_f22, ad_g_f22;
   Mat ad_p2, ad_g_p2, ad_p3, ad_g_p3;
+  Col ad_f11_b, ad_g_f11_b, ad_f12_b, ad_g_f12_b, ad_f21_b, ad_g_f21_b;
+  Col ad_f22_b, ad_g_f22_b;
   /* Word vectors */
   unsigned window_size, src_len, tgt_len, hidden_len;
   unsigned filter_len1, filter_len2, kbest1, kbest2;
@@ -72,43 +74,51 @@ class Model {
                                                              filter_len2);
     f22 = (0.6 / sqrt(filter_len2 * src_len)) * AMat::Random(src_len,
                                                              filter_len2);
+    f11_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
+    f12_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
+    f21_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
+    f22_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
     p2 = (0.6 / sqrt(kbest2)) * AMat::Random(kbest2, 1);
     p3 = (0.6 / sqrt(tgt_len * src_len)) * AMat::Random(tgt_len, src_len);
     /* Adadelta init */
     ad_f11 = ad_g_f11 = ad_f12 = ad_g_f12 = Mat::Zero(src_len, filter_len1);
     ad_f21 = ad_g_f21 = ad_f22 = ad_g_f22 = Mat::Zero(src_len, filter_len2);
+    ad_f11_b = ad_g_f11_b = ad_f12_b = ad_g_f12_b = Col::Zero(src_len);
+    ad_f21_b = ad_g_f21_b = ad_f22_b = ad_g_f22_b = Col::Zero(src_len);
     ad_p2 = ad_g_p2 = Mat::Zero(kbest2, 1);
     ad_p3 = ad_g_p3 = Mat::Zero(tgt_len, src_len);
+  }
+
+  template <typename T>
+  void ConvolveLayer(const T& mat, const AMat& filter, const ACol& filter_bias,
+                     const int& kmax, AMat* res) {
+    AMat convolved;
+    convolve_wide(mat, filter, &convolved);
+    Max(convolved, kmax, res);
+    AddToEveryCol(filter_bias, res);
+    ElemwiseSigmoid(res);
   }
 
   adouble ComputePredError(const unsigned& src_word_id,
                            const Col& tgt_vec_gold, Mat* sent_mat) {
     Col zero = Col::Zero(src_len), orig_col = sent_mat->col(src_word_id);
-    ACol azero = ACol::Zero(src_len);
+    //int h = 5;
     sent_mat->col(src_word_id) = zero;  // Set predict word to be zero
+    //int left_col = max(0, (int) src_word_id - h);
+    //int num_cols = min(2 * h + 1, (int) sent_mat->cols() - left_col);
+    //Mat phrase_mat = sent_mat->block(0, left_col, src_len, num_cols);
     /* Build the prediction model here */
-    AMat convolved11, convolved12, convolved21, convolved22;
-    AMat maxed11, maxed12, maxed21, maxed22;
-    ACol non_lin;
+    AMat out11, out12, out21, out22;
     /* Layer 1 convolution */
-    convolve_wide(*sent_mat, f11, &convolved11);
-    convolve_wide(*sent_mat, f12, &convolved12);
-    /* k-max operation */
-    max(convolved11, kbest1, &maxed11);
-    max(convolved12, kbest1, &maxed12);
-    ElemwiseSigmoid(&maxed11);
-    ElemwiseSigmoid(&maxed12);
+    ConvolveLayer(*sent_mat, f11, f11_b, kbest1, &out11);
+    ConvolveLayer(*sent_mat, f12, f12_b, kbest1, &out12);
     /* Layer 2 convolution */
-    convolve_wide(maxed11, f21, &convolved21);
-    convolve_wide(maxed12, f22, &convolved22);
-    /* k-max operation */
-    max(convolved21, kbest2, &maxed21);
-    max(convolved22, kbest2, &maxed22);
+    ConvolveLayer(out11, f21, f21_b, kbest2, &out21);
+    ConvolveLayer(out12, f22, f22_b, kbest2, &out22);
     /* Add the maxed matrices */
-    non_lin = (maxed21 + maxed22) * p2;  // Reduction to a vector
-    /* Add source word vector before non-linearity */
+    ACol non_lin = (out21 + out22) * p2;  // Reduction to a vector
+    /* Add source word vector */
     non_lin = ElemwiseDiff(non_lin, -1 * orig_col);
-    ElemwiseSigmoid(&non_lin);  // Non-linearity
     /* Convert hidden layer to tgt vector dimensions */
     ACol tgt_vec = p3 * non_lin; 
     /* Prediction done, replace the predict word column */
@@ -121,8 +131,12 @@ class Model {
     AdadeltaMatUpdate(RHO, EPSILON, &f12, &ad_f12, &ad_g_f12);
     AdadeltaMatUpdate(RHO, EPSILON, &f21, &ad_f21, &ad_g_f21);
     AdadeltaMatUpdate(RHO, EPSILON, &f22, &ad_f22, &ad_g_f22);
+    AdadeltaColUpdate(RHO, EPSILON, &f11_b, &ad_f11_b, &ad_g_f11_b);
+    AdadeltaColUpdate(RHO, EPSILON, &f12_b, &ad_f12_b, &ad_g_f12_b);
+    AdadeltaColUpdate(RHO, EPSILON, &f21_b, &ad_f21_b, &ad_g_f21_b);
+    AdadeltaColUpdate(RHO, EPSILON, &f22_b, &ad_f22_b, &ad_g_f22_b);
     AdadeltaMatUpdate(RHO, EPSILON, &p2, &ad_p2, &ad_g_p2);
-    AdadeltaMatUpdate(RHO, EPSILON, &p3, &ad_p3, &ad_g_p3);
+    //AdadeltaMatUpdate(RHO, EPSILON, &p3, &ad_p3, &ad_g_p3);
   }
 
 };
@@ -151,7 +165,7 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
         unsigned index = 0;
         for (unsigned j=0; j<src.size(); ++j) {
           if (model->src_vocab.find(src[j]) != model->src_vocab.end() &&
-              ConsiderForPred(src[j])) {
+              ConsiderForContext(src[j])) {
             src_words.push_back(model->src_vocab[src[j]]);
             old_to_new[j] = index++;
           }

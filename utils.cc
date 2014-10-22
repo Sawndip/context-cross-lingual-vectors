@@ -1,5 +1,3 @@
-#include <queue>
-
 #include "utils.h"
 #include "lexical.h"
 
@@ -9,24 +7,9 @@ using namespace Eigen;
 mapStrBool CONSIDER_CONTEXT;
 mapStrBool CONSIDER_PRED;
 
-bool ConsiderForContext(const string& a) {
-  /* See if already computed */
-  auto it = CONSIDER_CONTEXT.find(a);
-  if (it != CONSIDER_CONTEXT.end())
-    return it->second;
-  bool pred_res = ConsiderForPred(a);
-  if (pred_res == false) {
-    CONSIDER_CONTEXT[a] = false;
-    return false;
-  }
-  /* False if its a stop word */
-  string *f = std::find(STOP_WORDS, STOP_WORDS + NUM_STOP_WORDS, a);
-  if (f != STOP_WORDS + NUM_STOP_WORDS) {
-    CONSIDER_CONTEXT[a] = false;
-    return false;
-  }
-  CONSIDER_CONTEXT[a] = true;
-  return CONSIDER_CONTEXT[a];
+void AddToEveryCol(const ACol& bias, AMat* mat) {
+  for (unsigned i = 0; i < mat->cols(); ++i)
+    mat->col(i) += bias;
 }
 
 bool ConsiderForPred(const string& a) {
@@ -34,16 +17,36 @@ bool ConsiderForPred(const string& a) {
   auto it = CONSIDER_PRED.find(a);
   if (it != CONSIDER_PRED.end())
     return it->second;
+  bool pred_res = ConsiderForContext(a);
+  if (pred_res == false) {
+    CONSIDER_PRED[a] = false;
+    return false;
+  }
+  /* False if its a stop word */
+  string *f = std::find(STOP_WORDS, STOP_WORDS + NUM_STOP_WORDS, a);
+  if (f != STOP_WORDS + NUM_STOP_WORDS) {
+    CONSIDER_PRED[a] = false;
+    return false;
+  }
+  CONSIDER_PRED[a] = true;
+  return CONSIDER_PRED[a];
+}
+
+bool ConsiderForContext(const string& a) {
+  /* See if already computed */
+  auto it = CONSIDER_CONTEXT.find(a);
+  if (it != CONSIDER_CONTEXT.end())
+    return it->second;
   /* False if its a punctuation */
   if (a.length() == 1) {
     if (a.at(0) >= 33 && a.at(0) <= 64) {
-      CONSIDER_PRED[a] = false;
+      CONSIDER_CONTEXT[a] = false;
       return false;
     }
   }
   /* False if it contains a digit */
-  CONSIDER_PRED[a] = !(any_of(a.begin(), a.end(), ::isdigit));
-  return CONSIDER_PRED[a];
+  CONSIDER_CONTEXT[a] = !(any_of(a.begin(), a.end(), ::isdigit));
+  return CONSIDER_CONTEXT[a];
 }
 
 ARow TopKVals(ARow r, int k) {
@@ -103,6 +106,23 @@ void AdadeltaMatUpdate(const double& rho, const double& epsilon,
     }
   }
 }
+
+void AdadeltaColUpdate(const double& rho, const double& epsilon,
+                       ACol* mat, Col* mat_delta, Col* mat_grad) {
+  for (unsigned i = 0; i < mat->rows(); ++i) {
+    double g = (*mat)(i, 0).get_gradient();
+    double accum_g = rho * (*mat_grad)(i, 0) + (1 - rho) * g * g;
+    double del = sqrt((*mat_delta)(i, 0) + epsilon);
+    del /= sqrt(accum_g + epsilon);
+    del *= g;
+    (*mat)(i, 0) -= del;  // Update the variable
+    /* Update memory */
+    (*mat_grad)(i, 0) = accum_g;
+    (*mat_delta)(i, 0) = rho * (*mat_delta)(i, 0);
+    (*mat_delta)(i, 0) += (1 - rho) * del * del;
+  }
+}
+
 
 void AdadeltaUpdate(const double& rho, const double& epsilon,
                     adouble* d, double* d_delta, double* d_grad) {
