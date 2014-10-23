@@ -24,28 +24,51 @@
 #include "utils.h"
 #include "vecops.h"
 
-#define RHO 0.95
-#define EPSILON 0.000001
+double RHO = 0.95;
+double EPSILON = 0.000001;
 
 using namespace std;
 using namespace Eigen;
 using adept::adouble;
 
+/* Parameter of the model */
+template <typename AT, typename T>
+class Param {
+
+ public:
+  AT var;
+
+  void Init(const int& rows, const int& cols) {
+    var = (0.6 / sqrt (rows * cols)) * AT::Random(rows, cols);
+    del_var = T::Zero(rows, cols);
+    del_grad_var = T::Zero(rows, cols);
+  }
+
+  void AdadeltaUpdate(const double& rho, const double& epsilon) {
+    for (unsigned i = 0; i < var.rows(); ++i) {
+      for (unsigned j = 0; j < var.cols(); ++j) {
+        double g = var(i, j).get_gradient();
+        double accum_g = rho * del_grad_var(i, j) + (1 - rho) * g * g;
+        double del = g * sqrt(del_var(i, j) + epsilon) / sqrt(accum_g + epsilon);
+        var(i, j) -= del;  // Update the variable
+        /* Update memory */
+        del_grad_var(i, j) = accum_g;
+        del_var(i, j) = rho * del_var(i, j) + (1 - rho) * del * del;
+      }
+    }
+  }
+
+ private:
+  T del_var, del_grad_var;
+};
+
 /* Main class definition that learns the word vectors */
 class Model {
 
  public:
-  /* The parameters of the model
-     p2 -- Convert output after k-max to column
-     p3 -- Convert after non-linearity to target vector
-  */
-  AMat f11, f12, f21, f22, p1, p2, p3;
-  ACol f11_b, f12_b, f21_b, f22_b, p2_b;
-  /* Adadelta memory */
-  Mat ad_f11, ad_g_f11, ad_f12, ad_g_f12, ad_f21, ad_g_f21, ad_f22, ad_g_f22;
-  Mat ad_p1, ad_g_p1, ad_p2, ad_g_p2, ad_p3, ad_g_p3;
-  Col ad_f11_b, ad_g_f11_b, ad_f12_b, ad_g_f12_b, ad_f21_b, ad_g_f21_b;
-  Col ad_f22_b, ad_g_f22_b, ad_g_p2_b, ad_p2_b;
+  /* The parameters of the model */
+  Param<AMat, Mat> f11, f12, f21, f22, p1, p2, p3;
+  Param<ACol, Col> f11_b, f12_b, f21_b, f22_b, p2_b;
   /* Word vectors */
   unsigned window_size, src_len, tgt_len, hidden_len;
   unsigned filter_len1, filter_len2, kbest1, kbest2;
@@ -66,34 +89,18 @@ class Model {
       exit(0);
     }
     /* Params init */
-    f11 = (0.6 / sqrt(filter_len1 * src_len)) * AMat::Random(src_len,
-                                                             filter_len1);
-    f12 = (0.6 / sqrt(filter_len1 * src_len)) * AMat::Random(src_len,
-                                                             filter_len1);
-    f21 = (0.6 / sqrt(filter_len2 * src_len)) * AMat::Random(src_len,
-                                                             filter_len2);
-    f22 = (0.6 / sqrt(filter_len2 * src_len)) * AMat::Random(src_len,
-                                                             filter_len2);
-    f11_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
-    f12_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
-    f21_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
-    f22_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
-
-    p1 = (0.6 / sqrt(src_len * kbest2 * src_len)) * 
-         AMat::Random(src_len, src_len * kbest2);
-    p2 = (0.6 / sqrt(src_len * src_len)) * AMat::Random(src_len, src_len);
-    p3 = (0.6 / sqrt(tgt_len * src_len)) * AMat::Random(tgt_len, src_len);
-    p2_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
-    
-    /* Adadelta init */
-    ad_f11 = ad_g_f11 = ad_f12 = ad_g_f12 = Mat::Zero(src_len, filter_len1);
-    ad_f21 = ad_g_f21 = ad_f22 = ad_g_f22 = Mat::Zero(src_len, filter_len2);
-    ad_f11_b = ad_g_f11_b = ad_f12_b = ad_g_f12_b = Col::Zero(src_len);
-    ad_f21_b = ad_g_f21_b = ad_f22_b = ad_g_f22_b = Col::Zero(src_len);
-    ad_p1 = ad_g_p1 = Mat::Zero(src_len, src_len * kbest2);
-    ad_p2 = ad_g_p2 = Mat::Zero(src_len, src_len);
-    ad_p3 = ad_g_p3 = Mat::Zero(tgt_len, src_len);
-    ad_p2_b = ad_g_p2_b = Col::Zero(src_len);
+    f11.Init(src_len, filter_len1);
+    f12.Init(src_len, filter_len1);
+    f21.Init(src_len, filter_len2);
+    f22.Init(src_len, filter_len2);
+    f11_b.Init(src_len, 1);
+    f12_b.Init(src_len, 1);
+    f21_b.Init(src_len, 1);
+    f22_b.Init(src_len, 1);
+    p1.Init(src_len, src_len * kbest2);
+    p2.Init(src_len, src_len);
+    p3.Init(tgt_len, src_len);
+    p2_b.Init(src_len, 1);
   }
 
   template <typename T>
@@ -113,23 +120,23 @@ class Model {
     /* Build the prediction model here */
     AMat out11, out12, out21, out22;
     /* Layer 1 convolution */
-    ConvolveLayer(*sent_mat, f11, f11_b, kbest1, &out11);
-    ConvolveLayer(*sent_mat, f12, f12_b, kbest1, &out12);
+    ConvolveLayer(*sent_mat, f11.var, f11_b.var, kbest1, &out11);
+    ConvolveLayer(*sent_mat, f12.var, f12_b.var, kbest1, &out12);
     /* Layer 2 convolution */
-    ConvolveLayer(out11, f21, f21_b, kbest2, &out21);
-    ConvolveLayer(out12, f22, f22_b, kbest2, &out22);
+    ConvolveLayer(out11, f21.var, f21_b.var, kbest2, &out21);
+    ConvolveLayer(out12, f22.var, f22_b.var, kbest2, &out22);
     /* Add the maxed matrices */
     AMat added = out21 + out22;
     /* Reshape the matrix to a vector */
     ACol flattened;
     FlatMatToVector(added, &flattened);
     /* Convert this vector to a src_len vector */
-    ACol context_vec = p1 * flattened;
+    ACol context_vec = p1.var * flattened;
     /* Add the src_word_vec to this after passing through non-linearity 
        and convert the resultant to tgt_len vector */
-    ACol src_word_non_linear_vec = Prod(p2, src_word_vec) + p2_b;
+    ACol src_word_non_linear_vec = Prod(p2.var, src_word_vec) + p2_b.var;
     ElemwiseSigmoid(&src_word_non_linear_vec);
-    ACol final = p3 * (context_vec + src_word_non_linear_vec);
+    ACol final = p3.var * (context_vec + src_word_non_linear_vec);
     /* Prediction done, replace the predict word column */
     sent_mat->col(src_word_id) = src_word_vec;
     /* Return the error, which is 1 - Cosine similarity */
@@ -137,18 +144,18 @@ class Model {
   }
 
   void UpdateParams() {
-    AdadeltaMatUpdate(RHO, EPSILON, &f11, &ad_f11, &ad_g_f11);
-    AdadeltaMatUpdate(RHO, EPSILON, &f12, &ad_f12, &ad_g_f12);
-    AdadeltaMatUpdate(RHO, EPSILON, &f21, &ad_f21, &ad_g_f21);
-    AdadeltaMatUpdate(RHO, EPSILON, &f22, &ad_f22, &ad_g_f22);
-    AdadeltaColUpdate(RHO, EPSILON, &f11_b, &ad_f11_b, &ad_g_f11_b);
-    AdadeltaColUpdate(RHO, EPSILON, &f12_b, &ad_f12_b, &ad_g_f12_b);
-    AdadeltaColUpdate(RHO, EPSILON, &f21_b, &ad_f21_b, &ad_g_f21_b);
-    AdadeltaColUpdate(RHO, EPSILON, &f22_b, &ad_f22_b, &ad_g_f22_b);
-    AdadeltaMatUpdate(RHO, EPSILON, &p1, &ad_p1, &ad_g_p1);
-    AdadeltaMatUpdate(RHO, EPSILON, &p2, &ad_p2, &ad_g_p2);
-    AdadeltaColUpdate(RHO, EPSILON, &p2_b, &ad_p2_b, &ad_g_p2_b);
-    AdadeltaMatUpdate(RHO, EPSILON, &p3, &ad_p3, &ad_g_p3);
+    f11.AdadeltaUpdate(RHO, EPSILON);
+    f12.AdadeltaUpdate(RHO, EPSILON);
+    f21.AdadeltaUpdate(RHO, EPSILON);
+    f22.AdadeltaUpdate(RHO, EPSILON);
+    f11_b.AdadeltaUpdate(RHO, EPSILON);
+    f12_b.AdadeltaUpdate(RHO, EPSILON);
+    f21_b.AdadeltaUpdate(RHO, EPSILON);
+    f22_b.AdadeltaUpdate(RHO, EPSILON);
+    p1.AdadeltaUpdate(RHO, EPSILON);
+    p2.AdadeltaUpdate(RHO, EPSILON);
+    p2_b.AdadeltaUpdate(RHO, EPSILON);
+    p3.AdadeltaUpdate(RHO, EPSILON);
   }
 
 };

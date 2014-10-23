@@ -45,10 +45,6 @@ bool ConsiderForPred(const string&);
 void GetContext(const vector<unsigned>&, const vector<string>&, unsigned,
                 int, mapIntUnsigned*);
 
-void AdadeltaMatUpdate(const double&, const double&, AMat*, Mat*, Mat*);
-void AdadeltaColUpdate(const double&, const double&, ACol*, Col*, Col*);
-void AdadeltaUpdate(const double&, const double&, adouble*, double*, double*); 
-
 ARow TopKVals(ARow, int);
 
 string normalize_word(string&);

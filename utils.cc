@@ -96,55 +96,6 @@ void GetContext(const vector<unsigned>& words, const vector<string>& words_raw,
   }
 }
 
-void AdadeltaMatUpdate(const double& rho, const double& epsilon,
-                       AMat* mat, Mat* mat_delta, Mat* mat_grad) {
-  for (unsigned i = 0; i < mat->rows(); ++i) {
-    for (unsigned j = 0; j < mat->cols(); ++j) {
-      double g = (*mat)(i, j).get_gradient();
-      double accum_g = rho * (*mat_grad)(i, j) + (1 - rho) * g * g;
-      double del = sqrt((*mat_delta)(i, j) + epsilon);
-      del /= sqrt(accum_g + epsilon);
-      del *= g;
-      (*mat)(i, j) -= del;  // Update the variable
-      /* Update memory */
-      (*mat_grad)(i, j) = accum_g;
-      (*mat_delta)(i, j) = rho * (*mat_delta)(i, j);
-      (*mat_delta)(i, j) += (1 - rho) * del * del;
-    }
-  }
-}
-
-void AdadeltaColUpdate(const double& rho, const double& epsilon,
-                       ACol* mat, Col* mat_delta, Col* mat_grad) {
-  for (unsigned i = 0; i < mat->rows(); ++i) {
-    double g = (*mat)(i, 0).get_gradient();
-    double accum_g = rho * (*mat_grad)(i, 0) + (1 - rho) * g * g;
-    double del = sqrt((*mat_delta)(i, 0) + epsilon);
-    del /= sqrt(accum_g + epsilon);
-    del *= g;
-    (*mat)(i, 0) -= del;  // Update the variable
-    /* Update memory */
-    (*mat_grad)(i, 0) = accum_g;
-    (*mat_delta)(i, 0) = rho * (*mat_delta)(i, 0);
-    (*mat_delta)(i, 0) += (1 - rho) * del * del;
-  }
-}
-
-
-void AdadeltaUpdate(const double& rho, const double& epsilon,
-                    adouble* d, double* d_delta, double* d_grad) {
-  double g = d->get_gradient();
-  double accum_g = rho * (*d_grad) + (1 - rho) * g * g;
-  double del = sqrt((*d_delta) + epsilon);
-  del /= sqrt(accum_g + epsilon);
-  del *= g;
-  *d -= del;  // Update the variable
-  /* Update memory */
-  *d_grad = accum_g;
-  *d_delta = rho * (*d_delta);
-  *d_delta += (1 - rho) * del * del;
-}
-
 /* Try splitting over all whitespaces not just space */
 vector<string> split_line(string& line, char delim) {
   vector<string> words;
