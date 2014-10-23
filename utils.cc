@@ -7,6 +7,13 @@ using namespace Eigen;
 mapStrBool CONSIDER_CONTEXT;
 mapStrBool CONSIDER_PRED;
 
+void FlatMatToVector(const AMat& mat, ACol* c) {
+  *c = ACol::Zero(mat.rows() * mat.cols());
+  for (unsigned i = 0; i < mat.rows(); ++i)
+    for (unsigned j = 0; j < mat.cols(); ++j)
+      (*c)(i * mat.cols() + j, 0) = mat(i, j); 
+}
+
 void AddToEveryCol(const ACol& bias, AMat* mat) {
   for (unsigned i = 0; i < mat->cols(); ++i)
     mat->col(i) += bias;

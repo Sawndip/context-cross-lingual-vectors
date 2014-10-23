@@ -39,13 +39,13 @@ class Model {
      p2 -- Convert output after k-max to column
      p3 -- Convert after non-linearity to target vector
   */
-  AMat f11, f12, f21, f22, p2, p3;
-  ACol f11_b, f12_b, f21_b, f22_b;
+  AMat f11, f12, f21, f22, p1, p2, p3;
+  ACol f11_b, f12_b, f21_b, f22_b, p2_b;
   /* Adadelta memory */
   Mat ad_f11, ad_g_f11, ad_f12, ad_g_f12, ad_f21, ad_g_f21, ad_f22, ad_g_f22;
-  Mat ad_p2, ad_g_p2, ad_p3, ad_g_p3;
+  Mat ad_p1, ad_g_p1, ad_p2, ad_g_p2, ad_p3, ad_g_p3;
   Col ad_f11_b, ad_g_f11_b, ad_f12_b, ad_g_f12_b, ad_f21_b, ad_g_f21_b;
-  Col ad_f22_b, ad_g_f22_b;
+  Col ad_f22_b, ad_g_f22_b, ad_g_p2_b, ad_p2_b;
   /* Word vectors */
   unsigned window_size, src_len, tgt_len, hidden_len;
   unsigned filter_len1, filter_len2, kbest1, kbest2;
@@ -78,15 +78,22 @@ class Model {
     f12_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
     f21_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
     f22_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
-    p2 = (0.6 / sqrt(kbest2)) * AMat::Random(kbest2, 1);
+
+    p1 = (0.6 / sqrt(src_len * kbest2 * src_len)) * 
+         AMat::Random(src_len, src_len * kbest2);
+    p2 = (0.6 / sqrt(src_len * src_len)) * AMat::Random(src_len, src_len);
     p3 = (0.6 / sqrt(tgt_len * src_len)) * AMat::Random(tgt_len, src_len);
+    p2_b = (0.6 / sqrt(src_len)) * ACol::Random(src_len);
+    
     /* Adadelta init */
     ad_f11 = ad_g_f11 = ad_f12 = ad_g_f12 = Mat::Zero(src_len, filter_len1);
     ad_f21 = ad_g_f21 = ad_f22 = ad_g_f22 = Mat::Zero(src_len, filter_len2);
     ad_f11_b = ad_g_f11_b = ad_f12_b = ad_g_f12_b = Col::Zero(src_len);
     ad_f21_b = ad_g_f21_b = ad_f22_b = ad_g_f22_b = Col::Zero(src_len);
-    ad_p2 = ad_g_p2 = Mat::Zero(kbest2, 1);
+    ad_p1 = ad_g_p1 = Mat::Zero(src_len, src_len * kbest2);
+    ad_p2 = ad_g_p2 = Mat::Zero(src_len, src_len);
     ad_p3 = ad_g_p3 = Mat::Zero(tgt_len, src_len);
+    ad_p2_b = ad_g_p2_b = Col::Zero(src_len);
   }
 
   template <typename T>
@@ -101,12 +108,8 @@ class Model {
 
   adouble ComputePredError(const unsigned& src_word_id,
                            const Col& tgt_vec_gold, Mat* sent_mat) {
-    Col zero = Col::Zero(src_len), orig_col = sent_mat->col(src_word_id);
-    //int h = 5;
+    Col zero = Col::Zero(src_len), src_word_vec = sent_mat->col(src_word_id);
     sent_mat->col(src_word_id) = zero;  // Set predict word to be zero
-    //int left_col = max(0, (int) src_word_id - h);
-    //int num_cols = min(2 * h + 1, (int) sent_mat->cols() - left_col);
-    //Mat phrase_mat = sent_mat->block(0, left_col, src_len, num_cols);
     /* Build the prediction model here */
     AMat out11, out12, out21, out22;
     /* Layer 1 convolution */
@@ -116,14 +119,21 @@ class Model {
     ConvolveLayer(out11, f21, f21_b, kbest2, &out21);
     ConvolveLayer(out12, f22, f22_b, kbest2, &out22);
     /* Add the maxed matrices */
-    ACol non_lin = (out21 + out22) * p2;  // Reduction to a vector
-    /* Add source word vector */
-    non_lin = ElemwiseDiff(non_lin, -1 * orig_col);
-    /* Convert hidden layer to tgt vector dimensions */
-    ACol tgt_vec = p3 * non_lin; 
+    AMat added = out21 + out22;
+    /* Reshape the matrix to a vector */
+    ACol flattened;
+    FlatMatToVector(added, &flattened);
+    /* Convert this vector to a src_len vector */
+    ACol context_vec = p1 * flattened;
+    /* Add the src_word_vec to this after passing through non-linearity 
+       and convert the resultant to tgt_len vector */
+    ACol src_word_non_linear_vec = Prod(p2, src_word_vec) + p2_b;
+    ElemwiseSigmoid(&src_word_non_linear_vec);
+    ACol final = p3 * (context_vec + src_word_non_linear_vec);
     /* Prediction done, replace the predict word column */
-    sent_mat->col(src_word_id) = orig_col;
-    return 1 - CosineSim(tgt_vec, tgt_vec_gold);
+    sent_mat->col(src_word_id) = src_word_vec;
+    /* Return the error, which is 1 - Cosine similarity */
+    return 1 - CosineSim(final, tgt_vec_gold);
   }
 
   void UpdateParams() {
@@ -135,8 +145,10 @@ class Model {
     AdadeltaColUpdate(RHO, EPSILON, &f12_b, &ad_f12_b, &ad_g_f12_b);
     AdadeltaColUpdate(RHO, EPSILON, &f21_b, &ad_f21_b, &ad_g_f21_b);
     AdadeltaColUpdate(RHO, EPSILON, &f22_b, &ad_f22_b, &ad_g_f22_b);
+    AdadeltaMatUpdate(RHO, EPSILON, &p1, &ad_p1, &ad_g_p1);
     AdadeltaMatUpdate(RHO, EPSILON, &p2, &ad_p2, &ad_g_p2);
-    //AdadeltaMatUpdate(RHO, EPSILON, &p3, &ad_p3, &ad_g_p3);
+    AdadeltaColUpdate(RHO, EPSILON, &p2_b, &ad_p2_b, &ad_g_p2_b);
+    AdadeltaMatUpdate(RHO, EPSILON, &p3, &ad_p3, &ad_g_p3);
   }
 
 };
@@ -253,10 +265,10 @@ int main(int argc, char **argv){
   cerr << "k-best 2: " << model.kbest2 << endl;
   cerr << "Output vector length: " << model.tgt_len << endl;
   cerr << "----------------" << endl;
-  cerr << "Total parameters: " << (model.src_len * model.filter_len1 * 2 +
+  /*cerr << "Total parameters: " << (model.src_len * model.filter_len1 * 2 +
                                    model.src_len * model.filter_len2 * 2 +
                                    model.kbest2 +
-                                   model.src_len * model.tgt_len) << endl;
+                                   model.src_len * model.tgt_len) << endl;*/
 
   Train(parallel_corpus, align_corpus, num_iter, update_every, &model, &s);
   //WriteParamsToFile(outfilename, model.p11, model.p2, model.p3);

@@ -37,6 +37,7 @@ typedef std::tr1::unordered_map<string, unsigned> mapStrUnsigned;
 typedef std::tr1::unordered_map<int, unsigned> mapIntUnsigned;
 typedef std::tr1::unordered_map<string, bool> mapStrBool;
 
+void FlatMatToVector(const AMat&, ACol*);
 void AddToEveryCol(const ACol&, AMat*);
 
 bool ConsiderForContext(const string&);
