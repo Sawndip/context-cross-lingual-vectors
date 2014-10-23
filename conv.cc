@@ -87,7 +87,7 @@ class Model {
   /* The parameters of the model */
   Filter f11, f12, f21, f22;  // Convolution
   Param<AMat, Mat> p1, p2, p3;  // Post-convolution
-  Param<ACol, Col> p2_b, p4;  // Post-convolution
+  Param<ACol, Col> p2_b, p3_b;  // Post-convolution
   /* Word vectors */
   unsigned window_size, src_len, tgt_len, hidden_len;
   unsigned filter_len1, filter_len2, kbest1, kbest2;
@@ -115,8 +115,9 @@ class Model {
 
     p1.Init(kbest2, 1);
     p2.Init(src_len, src_len);
-    p3.Init(tgt_len, src_len);
     p2_b.Init(src_len, 1);
+    p3.Init(tgt_len, src_len);
+    p3_b.Init(tgt_len, 1);
   }
 
   template <typename T>
@@ -148,7 +149,7 @@ class Model {
     ACol src_word_non_linear_vec = Prod(p2.var, src_word_vec) + p2_b.var;
     ElemwiseSigmoid(&src_word_non_linear_vec);
     /* Add the processed src word vec with context_vec & convert to tgt_len */
-    ACol final = p3.var * (context_vec + src_word_non_linear_vec);
+    ACol final = p3.var * (context_vec + src_word_non_linear_vec) + p3_b.var;
     /* Prediction done, replace the predict word column */
     sent_mat->col(src_word_id) = src_word_vec;
     /* Return the error, which is 1 - Cosine similarity */
@@ -164,6 +165,7 @@ class Model {
     p2.AdadeltaUpdate(RHO, EPSILON);
     p2_b.AdadeltaUpdate(RHO, EPSILON);
     p3.AdadeltaUpdate(RHO, EPSILON);
+    p3_b.AdadeltaUpdate(RHO, EPSILON);
   }
 
 };
