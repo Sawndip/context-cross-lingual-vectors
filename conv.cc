@@ -24,8 +24,8 @@
 #include "utils.h"
 #include "vecops.h"
 
-double RHO = 0.95;
-double EPSILON = 0.000001;
+#define RHO 0.95
+#define EPSILON 0.000001
 
 using namespace std;
 using namespace Eigen;
@@ -59,7 +59,7 @@ class Param {
   }
 
  private:
-  T del_var, del_grad_var;
+  T del_var, del_grad_var;  // Adadelta memory
 };
 
 /* Main class definition that learns the word vectors */
@@ -67,8 +67,10 @@ class Model {
 
  public:
   /* The parameters of the model */
-  Param<AMat, Mat> f11, f12, f21, f22, p1, p2, p3;
-  Param<ACol, Col> f11_b, f12_b, f21_b, f22_b, p2_b;
+  Param<AMat, Mat> f11, f12, f21, f22;  // Convolution
+  Param<ACol, Col> f11_b, f12_b, f21_b, f22_b;  // Convolution
+  Param<AMat, Mat> p1, p2, p3;  // Post-convolution
+  Param<ACol, Col> p2_b, p4;  // Post-convolution
   /* Word vectors */
   unsigned window_size, src_len, tgt_len, hidden_len;
   unsigned filter_len1, filter_len2, kbest1, kbest2;
@@ -88,7 +90,7 @@ class Model {
       cerr << "Minimum max len: " << 3 << endl;
       exit(0);
     }
-    /* Params init */
+    /* Params initialization */
     f11.Init(src_len, filter_len1);
     f12.Init(src_len, filter_len1);
     f21.Init(src_len, filter_len2);
@@ -97,7 +99,7 @@ class Model {
     f12_b.Init(src_len, 1);
     f21_b.Init(src_len, 1);
     f22_b.Init(src_len, 1);
-    p1.Init(src_len, src_len * kbest2);
+    p1.Init(kbest2, 1);
     p2.Init(src_len, src_len);
     p3.Init(tgt_len, src_len);
     p2_b.Init(src_len, 1);
@@ -117,7 +119,6 @@ class Model {
                            const Col& tgt_vec_gold, Mat* sent_mat) {
     Col zero = Col::Zero(src_len), src_word_vec = sent_mat->col(src_word_id);
     sent_mat->col(src_word_id) = zero;  // Set predict word to be zero
-    /* Build the prediction model here */
     AMat out11, out12, out21, out22;
     /* Layer 1 convolution */
     ConvolveLayer(*sent_mat, f11.var, f11_b.var, kbest1, &out11);
@@ -127,15 +128,12 @@ class Model {
     ConvolveLayer(out12, f22.var, f22_b.var, kbest2, &out22);
     /* Add the maxed matrices */
     AMat added = out21 + out22;
-    /* Reshape the matrix to a vector */
-    ACol flattened;
-    FlatMatToVector(added, &flattened);
     /* Convert this vector to a src_len vector */
-    ACol context_vec = p1.var * flattened;
-    /* Add the src_word_vec to this after passing through non-linearity 
-       and convert the resultant to tgt_len vector */
+    ACol context_vec = added * p1.var;
+    /* Pass the src_word_vec through non-linearity */
     ACol src_word_non_linear_vec = Prod(p2.var, src_word_vec) + p2_b.var;
     ElemwiseSigmoid(&src_word_non_linear_vec);
+    /* Add the processed src word vec with context_vec & convert to tgt_len */
     ACol final = p3.var * (context_vec + src_word_non_linear_vec);
     /* Prediction done, replace the predict word column */
     sent_mat->col(src_word_id) = src_word_vec;
@@ -272,10 +270,6 @@ int main(int argc, char **argv){
   cerr << "k-best 2: " << model.kbest2 << endl;
   cerr << "Output vector length: " << model.tgt_len << endl;
   cerr << "----------------" << endl;
-  /*cerr << "Total parameters: " << (model.src_len * model.filter_len1 * 2 +
-                                   model.src_len * model.filter_len2 * 2 +
-                                   model.kbest2 +
-                                   model.src_len * model.tgt_len) << endl;*/
 
   Train(parallel_corpus, align_corpus, num_iter, update_every, &model, &s);
   //WriteParamsToFile(outfilename, model.p11, model.p2, model.p3);
