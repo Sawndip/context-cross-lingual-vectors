@@ -31,7 +31,7 @@ using namespace std;
 using namespace Eigen;
 using adept::adouble;
 
-/* Parameter of the model */
+/* General parameters of the model */
 template <typename AT, typename T>
 class Param {
 
@@ -62,13 +62,30 @@ class Param {
   T del_var, del_grad_var;  // Adadelta memory
 };
 
+/* Filter parameters used in the convolution model */
+class Filter {
+
+ public:
+  Param<AMat, Mat> filter;
+  Param<ACol, Col> bias;
+
+  void Init(const int& rows, const int& cols) {
+    filter.Init(rows, cols);
+    bias.Init(rows, 1);
+  }
+
+  void AdadeltaUpdate(const double& rho, const double& epsilon) {
+    filter.AdadeltaUpdate(rho, epsilon);
+    bias.AdadeltaUpdate(rho, epsilon);
+  }
+};
+
 /* Main class definition that learns the word vectors */
 class Model {
 
  public:
   /* The parameters of the model */
-  Param<AMat, Mat> f11, f12, f21, f22;  // Convolution
-  Param<ACol, Col> f11_b, f12_b, f21_b, f22_b;  // Convolution
+  Filter f11, f12, f21, f22;  // Convolution
   Param<AMat, Mat> p1, p2, p3;  // Post-convolution
   Param<ACol, Col> p2_b, p4;  // Post-convolution
   /* Word vectors */
@@ -95,10 +112,7 @@ class Model {
     f12.Init(src_len, filter_len1);
     f21.Init(src_len, filter_len2);
     f22.Init(src_len, filter_len2);
-    f11_b.Init(src_len, 1);
-    f12_b.Init(src_len, 1);
-    f21_b.Init(src_len, 1);
-    f22_b.Init(src_len, 1);
+
     p1.Init(kbest2, 1);
     p2.Init(src_len, src_len);
     p3.Init(tgt_len, src_len);
@@ -106,12 +120,12 @@ class Model {
   }
 
   template <typename T>
-  void ConvolveLayer(const T& mat, const AMat& filter, const ACol& filter_bias,
+  void ConvolveLayer(const T& mat, const Filter& filter,
                      const int& kmax, AMat* res) {
     AMat convolved;
-    convolve_wide(mat, filter, &convolved);
+    convolve_wide(mat, filter.filter.var, &convolved);
     Max(convolved, kmax, res);
-    AddToEveryCol(filter_bias, res);
+    AddToEveryCol(filter.bias.var, res);
     ElemwiseSigmoid(res);
   }
 
@@ -119,16 +133,16 @@ class Model {
                            const Col& tgt_vec_gold, Mat* sent_mat) {
     Col zero = Col::Zero(src_len), src_word_vec = sent_mat->col(src_word_id);
     sent_mat->col(src_word_id) = zero;  // Set predict word to be zero
-    AMat out11, out12, out21, out22;
+    AMat out11, out12, out13, out21, out22, out23;
     /* Layer 1 convolution */
-    ConvolveLayer(*sent_mat, f11.var, f11_b.var, kbest1, &out11);
-    ConvolveLayer(*sent_mat, f12.var, f12_b.var, kbest1, &out12);
+    ConvolveLayer(*sent_mat, f11, kbest1, &out11);
+    ConvolveLayer(*sent_mat, f12, kbest1, &out12);
     /* Layer 2 convolution */
-    ConvolveLayer(out11, f21.var, f21_b.var, kbest2, &out21);
-    ConvolveLayer(out12, f22.var, f22_b.var, kbest2, &out22);
+    ConvolveLayer(out11, f21, kbest2, &out21);
+    ConvolveLayer(out12, f22, kbest2, &out22);
     /* Add the maxed matrices */
     AMat added = out21 + out22;
-    /* Convert this vector to a src_len vector */
+    /* Convert this matrix to a src_len vector */
     ACol context_vec = added * p1.var;
     /* Pass the src_word_vec through non-linearity */
     ACol src_word_non_linear_vec = Prod(p2.var, src_word_vec) + p2_b.var;
@@ -146,10 +160,6 @@ class Model {
     f12.AdadeltaUpdate(RHO, EPSILON);
     f21.AdadeltaUpdate(RHO, EPSILON);
     f22.AdadeltaUpdate(RHO, EPSILON);
-    f11_b.AdadeltaUpdate(RHO, EPSILON);
-    f12_b.AdadeltaUpdate(RHO, EPSILON);
-    f21_b.AdadeltaUpdate(RHO, EPSILON);
-    f22_b.AdadeltaUpdate(RHO, EPSILON);
     p1.AdadeltaUpdate(RHO, EPSILON);
     p2.AdadeltaUpdate(RHO, EPSILON);
     p2_b.AdadeltaUpdate(RHO, EPSILON);
