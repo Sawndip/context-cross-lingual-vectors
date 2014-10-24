@@ -143,10 +143,8 @@ class Model {
     ElemwiseSigmoid(res);
   }
 
-  adouble ComputePredError(const Col& src_vec, const Col& tgt_vec,
-                           const AMat& sent_convolved) {
-    /* Convert convolved matrix to a src_len vector */
-    ACol sent_vec = sent_convolved * p1.var;
+  adouble PredError(const Col& src_vec, const Col& tgt_vec,
+                    const ACol& sent_vec) {
     /* Pass the src_word_vec through non-linearity */
     ACol src_non_linear_vec = Prod(p2.var, src_vec) + p2_b.var;
     ElemwiseSigmoid(&src_non_linear_vec);
@@ -211,6 +209,7 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
         }
         /* Read the alignment line */
         AMat sent_convolved;
+        ACol sent_vec;
         bool convolved = false;
         vector<string> src_tgt_pairs = split_line(a_line, ' ');
         for (unsigned j = 0; j < src_tgt_pairs.size(); ++j) {
@@ -222,14 +221,14 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
               old_to_new.find(src_ix) != old_to_new.end()) {
             if (!convolved) {
               model->Convolve(src_sent_mat, &sent_convolved);
+              sent_vec = sent_convolved * model->p1.var;
               convolved = true;
             }
             src_ix = old_to_new[src_ix];
             /* Compute error as the squared error */
-            auto tgt_vec = model->tgt_word_vecs[tgt_word];
-            auto src_vec = model->src_word_vecs[src_words[src_ix]];
-            adouble error = model->ComputePredError(src_vec, tgt_vec,
-                                                    sent_convolved);
+            Col tgt_vec = model->tgt_word_vecs[tgt_word];
+            Col src_vec = model->src_word_vecs[src_words[src_ix]];
+            adouble error = model->PredError(src_vec, tgt_vec, sent_vec);
             total_error += error;
             semi_error += error;
             if (++accum == update_every) {
