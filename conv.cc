@@ -126,7 +126,7 @@ class Model {
     AMat convolved;
     convolve_wide(mat, filter.filter.var, &convolved);
     Max(convolved, kmax, res);
-    AddToEveryCol(filter.bias.var, res);
+    *res += filter.bias.var.rowwise().replicate(res->cols());
     ElemwiseSigmoid(res);
   }
 

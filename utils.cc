@@ -14,11 +14,6 @@ void FlatMatToVector(const AMat& mat, ACol* c) {
       (*c)(i * mat.cols() + j, 0) = mat(i, j); 
 }
 
-void AddToEveryCol(const ACol& bias, AMat* mat) {
-  for (unsigned i = 0; i < mat->cols(); ++i)
-    mat->col(i) += bias;
-}
-
 bool ConsiderForPred(const string& a) {
   /* See if already computed */
   auto it = CONSIDER_PRED.find(a);
