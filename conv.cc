@@ -120,6 +120,19 @@ class Model {
     p3_b.Init(tgt_len, 1);
   }
 
+  void Convolve(const Mat& sent_mat, AMat* res) {
+    AMat out11, out12, out21, out22, layer1_out;
+    /* Layer 1 */
+    ConvolveLayer(sent_mat, f11, kbest1, &out11);
+    ConvolveLayer(sent_mat, f12, kbest1, &out12);
+    /* Layer 2 */
+    layer1_out = out11 + out12;
+    ConvolveLayer(layer1_out, f21, kbest2, &out21);
+    ConvolveLayer(layer1_out, f22, kbest2, &out22);
+    /* Add the results of the two parallel convolutions */
+    *res = out21 + out22;  
+  }
+
   template <typename T>
   void ConvolveLayer(const T& mat, const Filter& filter,
                      const int& kmax, AMat* res) {
@@ -130,30 +143,16 @@ class Model {
     ElemwiseSigmoid(res);
   }
 
-  adouble ComputePredError(const unsigned& src_word_id,
-                           const Col& tgt_vec_gold, Mat* sent_mat) {
-    Col zero = Col::Zero(src_len), src_word_vec = sent_mat->col(src_word_id);
-    sent_mat->col(src_word_id) = zero;  // Set predict word to be zero
-    AMat out11, out12, out13, out21, out22, out23;
-    /* Layer 1 convolution */
-    ConvolveLayer(*sent_mat, f11, kbest1, &out11);
-    ConvolveLayer(*sent_mat, f12, kbest1, &out12);
-    /* Layer 2 convolution */
-    ConvolveLayer(out11, f21, kbest2, &out21);
-    ConvolveLayer(out12, f22, kbest2, &out22);
-    /* Add the maxed matrices */
-    AMat added = out21 + out22;
-    /* Convert this matrix to a src_len vector */
-    ACol context_vec = added * p1.var;
+  adouble ComputePredError(const Col& src_vec, const Col& tgt_vec,
+                           const AMat& sent_convolved) {
+    /* Convert convolved matrix to a src_len vector */
+    ACol sent_vec = sent_convolved * p1.var;
     /* Pass the src_word_vec through non-linearity */
-    ACol src_word_non_linear_vec = Prod(p2.var, src_word_vec) + p2_b.var;
-    ElemwiseSigmoid(&src_word_non_linear_vec);
+    ACol src_non_linear_vec = Prod(p2.var, src_vec) + p2_b.var;
+    ElemwiseSigmoid(&src_non_linear_vec);
     /* Add the processed src word vec with context_vec & convert to tgt_len */
-    ACol final = p3.var * (context_vec + src_word_non_linear_vec) + p3_b.var;
-    /* Prediction done, replace the predict word column */
-    sent_mat->col(src_word_id) = src_word_vec;
-    /* Return the error, which is 1 - Cosine similarity */
-    return 1 - CosineSim(final, tgt_vec_gold);
+    ACol pred_tgt_vec = p3.var * (sent_vec + src_non_linear_vec) + p3_b.var;
+    return 1 - CosineSim(pred_tgt_vec, tgt_vec);
   }
 
   void UpdateParams() {
@@ -211,19 +210,26 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
             tgt_words.push_back(-1); // word not in vocab
         }
         /* Read the alignment line */
+        AMat sent_convolved;
+        bool convolved = false;
         vector<string> src_tgt_pairs = split_line(a_line, ' ');
         for (unsigned j = 0; j < src_tgt_pairs.size(); ++j) {
           vector<string> index_pair = split_line(src_tgt_pairs[j], '-');
           unsigned src_ix = stoi(index_pair[0]), tgt_ix = stoi(index_pair[1]);
-          unsigned src_word = src_words[src_ix], tgt_word = tgt_words[tgt_ix];
+          unsigned tgt_word = tgt_words[tgt_ix];
           /* If both words are in the cleaned sentences, train on this */
           if (tgt_words[tgt_ix] != -1 &&
               old_to_new.find(src_ix) != old_to_new.end()) {
+            if (!convolved) {
+              model->Convolve(src_sent_mat, &sent_convolved);
+              convolved = true;
+            }
             src_ix = old_to_new[src_ix];
             /* Compute error as the squared error */
-            auto tgt_word_vec = model->tgt_word_vecs[tgt_word];
-            adouble error = model->ComputePredError(src_ix, tgt_word_vec,
-                                                    &src_sent_mat);
+            auto tgt_vec = model->tgt_word_vecs[tgt_word];
+            auto src_vec = model->src_word_vecs[src_words[src_ix]];
+            adouble error = model->ComputePredError(src_vec, tgt_vec,
+                                                    sent_convolved);
             total_error += error;
             semi_error += error;
             if (++accum == update_every) {
