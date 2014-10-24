@@ -27,7 +27,6 @@ void ElemwiseTanh(ARow*);
 ACol ElemwiseProd(const ACol&, const Col&);
 void ElemwiseProdSum(const ACol&, const Col&, ACol*);
 
-adouble DotProdARow(const ARow&, const ARow&);
 adouble DotProdCol(const ACol&, const Col&);
 adouble DotProdRow(const ARow&, const Row&);
 adouble CosineSim(const ACol&, const Col&); 

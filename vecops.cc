@@ -7,13 +7,6 @@ adouble DotProdRow(const ARow& a, const Row& b) {
   return sum;
 }
 
-adouble DotProdARow(const ARow& a, const ARow& b) {
-  adouble sum = 0;
-  for (unsigned i = 0; i < a.cols(); ++i)
-    sum += a(0, i) * b(0, i);
-  return sum;
-}
-
 adouble DotProdCol(const ACol& a, const Col& b) {
   adouble sum = 0;
   for (unsigned i = 0; i < a.rows(); ++i)
@@ -58,8 +51,11 @@ void convolve_narrow(const AMat& mat, const AMat& filter, AMat* res) {
   unsigned slice_len = filter.cols();
   (*res) = AMat::Zero(mat.rows(), mat.cols() - slice_len + 1);
   for (unsigned i = 0; i < res->rows(); ++i) {
-    for (unsigned j = 0; j < res->cols(); ++j)
-      (*res)(i, j) = DotProdARow(filter.row(i), mat.block(i, j, 1, slice_len));
+    ARow r = filter.row(i);
+    for (unsigned j = 0; j < res->cols(); ++j) {
+      ARow rx = mat.block(i, j, 1, slice_len);
+      (*res)(i, j) = r.dot(rx);
+    }
   }
 }
 
