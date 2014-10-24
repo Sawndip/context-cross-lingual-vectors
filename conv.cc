@@ -90,21 +90,21 @@ class Model {
   Param<ACol, Col> p2_b, p3_b;  // Post-convolution
   /* Word vectors */
   unsigned window_size, src_len, tgt_len, hidden_len;
-  unsigned filter_len1, filter_len2, kbest1, kbest2;
+  unsigned filter_len1, filter_len2;
+  int kmax;
   mapStrUnsigned src_vocab, tgt_vocab;
   vector<Col> src_word_vecs, tgt_word_vecs;
       
-  Model(const int& filt_len, const int& kmax, const string& src_vec_file,
+  Model(const int& filt_len, const int& k, const string& src_vec_file,
         const string& tgt_vec_file) {
     ReadVecsFromFile(src_vec_file, &src_vocab, &src_word_vecs);
     ReadVecsFromFile(tgt_vec_file, &tgt_vocab, &tgt_word_vecs);
     src_len = src_word_vecs[0].size();
     tgt_len = tgt_word_vecs[0].size();
     filter_len1 = filt_len, filter_len2 = filt_len - 1;
-    kbest1 = kmax, kbest2 = kmax - 2;
-    if (filter_len2 <= 1 || kbest2 < 1) {
+    kmax = k;
+    if (filter_len2 <= 1) {
       cerr << "Minimum filter len: " << 3 << endl;
-      cerr << "Minimum max len: " << 3 << endl;
       exit(0);
     }
     /* Params initialization */
@@ -113,7 +113,7 @@ class Model {
     f21.Init(src_len, filter_len2);
     f22.Init(src_len, filter_len2);
 
-    p1.Init(kbest2, 1);
+    p1.Init(kmax, 1);
     p2.Init(src_len, src_len);
     p2_b.Init(src_len, 1);
     p3.Init(tgt_len, src_len);
@@ -123,12 +123,13 @@ class Model {
   void Convolve(const Mat& sent_mat, AMat* res) {
     AMat out11, out12, out21, out22, layer1_out;
     /* Layer 1 */
-    ConvolveLayer(sent_mat, f11, kbest1, &out11);
-    ConvolveLayer(sent_mat, f12, kbest1, &out12);
+    int k = max(int(sent_mat.cols()/2), kmax);
+    ConvolveLayer(sent_mat, f11, k, &out11);
+    ConvolveLayer(sent_mat, f12, k, &out12);
     /* Layer 2 */
     layer1_out = out11 + out12;
-    ConvolveLayer(layer1_out, f21, kbest2, &out21);
-    ConvolveLayer(layer1_out, f22, kbest2, &out22);
+    ConvolveLayer(layer1_out, f21, kmax, &out21);
+    ConvolveLayer(layer1_out, f22, kmax, &out22);
     /* Add the results of the two parallel convolutions */
     *res = out21 + out22;  
   }
@@ -261,7 +262,7 @@ int main(int argc, char **argv){
          << " update_every " << " num_iter " << " outfilename\n";
     cerr << "Recommended: " << argv[0] << " parallel_corpus " 
          << " alignment_corpus " << " src_vec_corpus " << " tgt_vec_corpus "
-         << " 5 1 50 2" << " out.txt\n";
+         << " 3 5 50 2" << " out.txt\n";
     exit(0);
   }
   
@@ -282,9 +283,8 @@ int main(int argc, char **argv){
   cerr << "----------------" << endl;
   cerr << "Input vector length: " << model.src_len << endl;
   cerr << "Filter 1 length: " << model.filter_len1 << endl;
-  cerr << "k-best 1: " << model.kbest1 << endl;
   cerr << "Filter 2 length: " << model.filter_len2 << endl;
-  cerr << "k-best 2: " << model.kbest2 << endl;
+  cerr << "k-max: " << model.kmax << endl;
   cerr << "Output vector length: " << model.tgt_len << endl;
   cerr << "----------------" << endl;
 
