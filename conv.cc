@@ -90,7 +90,7 @@ class Model {
   Param<ACol, Col> p2_b, p3_b;  // Post-convolution
   /* Word vectors */
   unsigned window_size, src_len, tgt_len, hidden_len;
-  unsigned filter_len1, filter_len2;
+  unsigned filter_len;
   int kmax;
   mapStrUnsigned src_vocab, tgt_vocab;
   vector<Col> src_word_vecs, tgt_word_vecs;
@@ -101,17 +101,17 @@ class Model {
     ReadVecsFromFile(tgt_vec_file, &tgt_vocab, &tgt_word_vecs);
     src_len = src_word_vecs[0].size();
     tgt_len = tgt_word_vecs[0].size();
-    filter_len1 = filt_len, filter_len2 = filt_len - 1;
+    filter_len = filt_len;
     kmax = k;
-    if (filter_len2 <= 1) {
+    if (filter_len <= 3) {
       cerr << "Minimum filter len: " << 3 << endl;
       exit(0);
     }
     /* Params initialization */
-    f11.Init(src_len, filter_len1);
-    f12.Init(src_len, filter_len1);
-    f21.Init(src_len, filter_len2);
-    f22.Init(src_len, filter_len2);
+    f11.Init(src_len, filter_len);
+    f12.Init(src_len, filter_len);
+    f21.Init(src_len, filter_len - 1);
+    f22.Init(src_len, filter_len - 1);
 
     p1.Init(kmax, 1);
     p2.Init(src_len, src_len);
@@ -282,8 +282,8 @@ int main(int argc, char **argv){
   cerr << "Model specification" << endl;
   cerr << "----------------" << endl;
   cerr << "Input vector length: " << model.src_len << endl;
-  cerr << "Filter 1 length: " << model.filter_len1 << endl;
-  cerr << "Filter 2 length: " << model.filter_len2 << endl;
+  cerr << "Filter 1 length: " << model.filter_len << endl;
+  cerr << "Filter 2 length: " << model.filter_len - 1 << endl;
   cerr << "k-max: " << model.kmax << endl;
   cerr << "Output vector length: " << model.tgt_len << endl;
   cerr << "----------------" << endl;
