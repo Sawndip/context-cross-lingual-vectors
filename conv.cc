@@ -88,22 +88,15 @@ class Model {
   Filter f11, f12, f21, f22;  // Convolution
   Param<AMat, Mat> p1, p2, p3;  // Post-convolution
   Param<ACol, Col> p2_b, p3_b;  // Post-convolution
-  /* Word vectors */
-  unsigned window_size, src_len, tgt_len, hidden_len;
-  unsigned filter_len;
-  int kmax;
-  mapStrUnsigned src_vocab, tgt_vocab;
-  vector<Col> src_word_vecs, tgt_word_vecs;
+  int window_size, src_len, tgt_len, hidden_len, filter_len, kmax;
       
-  Model(const int& filt_len, const int& k, const string& src_vec_file,
-        const string& tgt_vec_file) {
-    ReadVecsFromFile(src_vec_file, &src_vocab, &src_word_vecs);
-    ReadVecsFromFile(tgt_vec_file, &tgt_vocab, &tgt_word_vecs);
-    src_len = src_word_vecs[0].size();
-    tgt_len = tgt_word_vecs[0].size();
+  Model(const int& filt_len, const int& k, const int& src_vec_len,
+        const int& tgt_vec_len) {
+    src_len = src_vec_len;
+    tgt_len = tgt_vec_len;
     filter_len = filt_len;
     kmax = k;
-    if (filter_len <= 3) {
+    if (filter_len < 3) {
       cerr << "Minimum filter len: " << 3 << endl;
       exit(0);
     }
@@ -169,7 +162,9 @@ class Model {
 };
 
 void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
-           const int& update_every, Model* model, adept::Stack* s) {
+           const int& update_every, const vector<Col>& src_word_vecs,
+           const vector<Col>& tgt_word_vecs, const mapStrUnsigned& src_vocab,
+           const mapStrUnsigned& tgt_vocab, Model* model, adept::Stack* s) {
   for (unsigned i=0; i<num_iter; ++i) {
     cerr << "\nIteration: " << i+1 << endl;
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
@@ -191,20 +186,21 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
         mapUnsUns old_to_new;
         unsigned index = 0;
         for (unsigned j=0; j<src.size(); ++j) {
-          if (model->src_vocab.find(src[j]) != model->src_vocab.end() &&
-              ConsiderForContext(src[j])) {
-            src_words.push_back(model->src_vocab[src[j]]);
+          auto it = src_vocab.find(src[j]);
+          if (it != src_vocab.end() && ConsiderForContext(src[j])) {
+            src_words.push_back(it->second);
             old_to_new[j] = index++;
           }
         }
         /* Make a sentence matrix */
-        Mat src_sent_mat(model->src_len, src_words.size());
+        Mat src_sent_mat(src_word_vecs[0].size(), src_words.size());
         for (unsigned i = 0; i < src_words.size(); ++i)
-          src_sent_mat.col(i) = model->src_word_vecs[src_words[i]];
+          src_sent_mat.col(i) = src_word_vecs[src_words[i]];
         /* Target sentence */
         for (unsigned j=0; j<tgt.size(); ++j) {
-          if (model->tgt_vocab.find(tgt[j]) != model->tgt_vocab.end())
-            tgt_words.push_back(model->tgt_vocab[tgt[j]]);
+          auto it = tgt_vocab.find(tgt[j]);
+          if (it != tgt_vocab.end())
+            tgt_words.push_back(it->second);
           else
             tgt_words.push_back(-1); // word not in vocab
         }
@@ -227,8 +223,8 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
             }
             src_ix = old_to_new[src_ix];
             /* Compute error as the squared error */
-            Col tgt_vec = model->tgt_word_vecs[tgt_word];
-            Col src_vec = model->src_word_vecs[src_words[src_ix]];
+            Col tgt_vec = tgt_word_vecs[tgt_word];
+            Col src_vec = src_word_vecs[src_words[src_ix]];
             adouble error = model->PredError(src_vec, tgt_vec, sent_vec);
             total_error += error;
             semi_error += error;
@@ -275,20 +271,28 @@ int main(int argc, char **argv){
   int update_every = stoi(argv[7]);
   int num_iter = stoi(argv[8]);
   string outfilename = argv[9];
+
+  mapStrUnsigned src_vocab, tgt_vocab;
+  vector<Col> src_word_vecs, tgt_word_vecs;
+  ReadVecsFromFile(src_vec_corpus, &src_vocab, &src_word_vecs);
+  ReadVecsFromFile(tgt_vec_corpus, &tgt_vocab, &tgt_word_vecs);
+  int src_len = src_word_vecs[0].size();
+  int tgt_len = tgt_word_vecs[0].size();
  
   adept::Stack s;
-  Model model(filt_len, kmax, src_vec_corpus, tgt_vec_corpus);
+  Model model(filt_len, kmax, src_len, tgt_len);
 
   cerr << "Model specification" << endl;
   cerr << "----------------" << endl;
-  cerr << "Input vector length: " << model.src_len << endl;
+  cerr << "Input vector length: " << src_len << endl;
   cerr << "Filter 1 length: " << model.filter_len << endl;
   cerr << "Filter 2 length: " << model.filter_len - 1 << endl;
   cerr << "k-max: " << model.kmax << endl;
-  cerr << "Output vector length: " << model.tgt_len << endl;
+  cerr << "Output vector length: " << tgt_len << endl;
   cerr << "----------------" << endl;
 
-  Train(parallel_corpus, align_corpus, num_iter, update_every, &model, &s);
+  Train(parallel_corpus, align_corpus, num_iter, update_every,
+        src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab, &model, &s);
   //WriteParamsToFile(outfilename, model.p11, model.p2, model.p3);
   return 1;
 }
