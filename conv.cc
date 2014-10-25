@@ -162,9 +162,11 @@ class Model {
 };
 
 void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
-           const int& update_every, const vector<Col>& src_word_vecs,
-           const vector<Col>& tgt_word_vecs, const mapStrUnsigned& src_vocab,
-           const mapStrUnsigned& tgt_vocab, Model* model, adept::Stack* s) {
+           const int& update_every, const int& filt_len, const int& kmax,
+           const vector<Col>& src_word_vecs, const vector<Col>& tgt_word_vecs,
+           const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab) {
+  adept::Stack s;
+  Model model(filt_len, kmax, src_word_vecs[0].size(), tgt_word_vecs[0].size());
   for (unsigned i=0; i<num_iter; ++i) {
     cerr << "\nIteration: " << i+1 << endl;
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
@@ -173,7 +175,7 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
     unsigned num_words = 0, erroneous_cases = 0;
     adouble total_error = 0, semi_error = 0;
     int accum = 0;
-    s->new_recording();
+    s.new_recording();
     if (p_file.is_open() && a_file.is_open()) {
       while (getline(p_file, p_line) && getline(a_file, a_line)) {
         /* Extracting words from sentences */
@@ -217,24 +219,24 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
           if (tgt_words[tgt_ix] != -1 &&
               old_to_new.find(src_ix) != old_to_new.end()) {
             if (!convolved) {
-              model->Convolve(src_sent_mat, &sent_convolved);
-              sent_vec = sent_convolved * model->p1.var;
+              model.Convolve(src_sent_mat, &sent_convolved);
+              sent_vec = sent_convolved * model.p1.var;
               convolved = true;
             }
             src_ix = old_to_new[src_ix];
             /* Compute error as the squared error */
             Col tgt_vec = tgt_word_vecs[tgt_word];
             Col src_vec = src_word_vecs[src_words[src_ix]];
-            adouble error = model->PredError(src_vec, tgt_vec, sent_vec);
+            adouble error = model.PredError(src_vec, tgt_vec, sent_vec);
             total_error += error;
             semi_error += error;
             if (++accum == update_every) {
               semi_error.set_gradient(1.0);
-              s->compute_adjoint();
-              model->UpdateParams();
+              s.compute_adjoint();
+              model.UpdateParams();
               semi_error = 0;
               accum = 0;
-              s->new_recording();
+              s.new_recording();
             }
             num_words += 1;
           }
@@ -279,20 +281,17 @@ int main(int argc, char **argv){
   int src_len = src_word_vecs[0].size();
   int tgt_len = tgt_word_vecs[0].size();
  
-  adept::Stack s;
-  Model model(filt_len, kmax, src_len, tgt_len);
-
   cerr << "Model specification" << endl;
   cerr << "----------------" << endl;
   cerr << "Input vector length: " << src_len << endl;
-  cerr << "Filter 1 length: " << model.filter_len << endl;
-  cerr << "Filter 2 length: " << model.filter_len - 1 << endl;
-  cerr << "k-max: " << model.kmax << endl;
+  cerr << "Filter 1 length: " << filt_len << endl;
+  cerr << "Filter 2 length: " << filt_len - 1 << endl;
+  cerr << "k-max: " << kmax << endl;
   cerr << "Output vector length: " << tgt_len << endl;
   cerr << "----------------" << endl;
 
-  Train(parallel_corpus, align_corpus, num_iter, update_every,
-        src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab, &model, &s);
+  Train(parallel_corpus, align_corpus, num_iter, update_every, filt_len, kmax,
+        src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab);
   //WriteParamsToFile(outfilename, model.p11, model.p2, model.p3);
   return 1;
 }
