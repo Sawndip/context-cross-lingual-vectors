@@ -7,13 +7,6 @@ using namespace Eigen;
 mapStrBool CONSIDER_CONTEXT;
 mapStrBool CONSIDER_PRED;
 
-void FlatMatToVector(const AMat& mat, ACol* c) {
-  *c = ACol::Zero(mat.rows() * mat.cols());
-  for (unsigned i = 0; i < mat.rows(); ++i)
-    for (unsigned j = 0; j < mat.cols(); ++j)
-      (*c)(i * mat.cols() + j, 0) = mat(i, j); 
-}
-
 bool ConsiderForPred(const string& a) {
   /* See if already computed */
   auto it = CONSIDER_PRED.find(a);
@@ -101,49 +94,6 @@ vector<string> split_line(string& line, char delim) {
       words.push_back(item);
   }
   return words;
-}
-
-void random_amat_map(int context_len, unsigned rows, unsigned cols,
-                     mapIntAMat *result) {
-  for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = (0.6 / sqrt(rows*cols)) * AMat::Random(rows, cols);
-}
-
-void random_acol_map(int context_len, unsigned vec_len,
-                     mapIntACol *result) {
-  for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = (0.6 / sqrt(vec_len)) * ACol::Random(vec_len);
-}
-
-void random_col_map(int context_len, unsigned vec_len,
-                    mapIntCol *result) {
-  for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = (0.6 / sqrt(vec_len)) * Col::Random(vec_len);
-}
-
-void zero_amat_map(int context_len, unsigned rows, unsigned cols,
-                   mapIntAMat *result) {
-  for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = AMat::Zero(rows, cols);
-}
-
-void zero_mat_map(int context_len, unsigned rows, unsigned cols,
-                  mapIntMat *result) {
-  for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = Mat::Zero(rows, cols);
-}
-
-
-void zero_acol_map(int context_len, unsigned vec_len,
-                   mapIntACol *result) {
-  for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = ACol::Zero(vec_len);
-}
-
-void zero_col_map(int context_len, unsigned vec_len,
-                  mapIntCol *result) {
-  for (int i = -context_len; i <= context_len; ++i)
-    (*result)[i] = Col::Zero(vec_len);
 }
 
 void ReadVecsFromFile(const string& vec_file_name, mapStrUnsigned* t_vocab,

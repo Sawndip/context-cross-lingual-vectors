@@ -47,14 +47,6 @@ ARow TopKVals(ARow, int);
 string normalize_word(string&);
 vector<string> split_line(string&, char);
 
-void random_acol_map(int, unsigned, mapIntACol*);
-void random_amat_map(int, unsigned, unsigned, mapIntAMat*);
-void random_col_map(int, unsigned, mapIntCol*);
-void zero_acol_map(int, unsigned, mapIntACol*);
-void zero_amat_map(int, unsigned, unsigned, mapIntAMat*);
-void zero_mat_map(int, unsigned, unsigned, mapIntMat*);
-void zero_col_map(int, unsigned, mapIntCol*);
-
 void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Col>*);
 void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Row>*);
 void ReadEntropicWords(const string&, const mapStrUnsigned&, mapUnsUns*);
