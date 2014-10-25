@@ -260,7 +260,7 @@ int main(int argc, char **argv){
          << " update_every " << " num_iter " << " outfilename\n";
     cerr << "Recommended: " << argv[0] << " parallel_corpus " 
          << " alignment_corpus " << " src_vec_corpus " << " tgt_vec_corpus "
-         << " 3 5 50 2" << " out.txt\n";
+         << " 3 5 10 2" << " out.txt\n";
     exit(0);
   }
   
