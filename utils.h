@@ -48,11 +48,5 @@ string normalize_word(string&);
 vector<string> split_line(string&, char);
 
 void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Col>*);
-void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Row>*);
-void ReadEntropicWords(const string&, const mapStrUnsigned&, mapUnsUns*);
-
-void WriteParamsToFile(const string&, const mapIntACol&, const AMat&);
-void WriteParamsToFile(const string&, const AMat&, const AMat&, const AMat&); 
-void ReadParamsFromFile(const string&, mapIntACol*, AMat*);
 
 #endif

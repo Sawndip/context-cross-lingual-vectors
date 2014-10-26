@@ -58,6 +58,25 @@ class Param {
     }
   }
 
+  void WriteToFile(ofstream& out) {
+    out << var.rows() << " " << var.cols() << " ";
+    for (unsigned i = 0; i < var.rows(); ++i) {
+      for(unsigned j = 0; j < var.cols(); ++j) 
+        out << var(i, j) << " ";
+    }
+    out << endl;
+  }
+
+  void ReadFromFile(ifstream& in) {
+    string line;
+    getline(in, line);
+    vector<string> data = split_line(line, ' ');
+    int rows = stoi(data[0]), cols = stoi(data[1]);
+    var = AT(rows, cols);
+    for (int i = 2; i < data.size(); ++i)
+      var((i-2)/cols, (i-2)%cols) = stod(data[i]);
+  }
+
  private:
   T del_var, del_grad_var;  // Adadelta memory
 };
@@ -78,6 +97,16 @@ class Filter {
     filter.AdadeltaUpdate(rho, epsilon);
     bias.AdadeltaUpdate(rho, epsilon);
   }
+
+  void WriteToFile(ofstream& out) {
+    filter.WriteToFile(out);
+    bias.WriteToFile(out);
+  }
+
+  void ReadFromFile(ifstream& in) {
+    filter.ReadFromFile(in);
+    bias.ReadFromFile(in);
+  }
 };
 
 /* Main class definition that learns the word vectors */
@@ -88,7 +117,7 @@ class Model {
   Filter f11, f12, f21, f22;  // Convolution
   Param<AMat, Mat> p1, p2, p3;  // Post-convolution
   Param<ACol, Col> p2_b, p3_b;  // Post-convolution
-  int window_size, src_len, tgt_len, hidden_len, filter_len, kmax;
+  int src_len, tgt_len, filter_len, kmax;
       
   Model(const int& filt_len, const int& k, const int& src_vec_len,
         const int& tgt_vec_len) {
@@ -129,10 +158,10 @@ class Model {
 
   template <typename T>
   void ConvolveLayer(const T& mat, const Filter& filter,
-                     const int& kmax, AMat* res) {
+                     const int& k, AMat* res) {
     AMat convolved;
     convolve_wide(mat, filter.filter.var, &convolved);
-    Max(convolved, kmax, res);
+    Max(convolved, k, res);
     *res += filter.bias.var.rowwise().replicate(res->cols());
     ElemwiseSigmoid(res);
   }
@@ -157,6 +186,49 @@ class Model {
     p2_b.AdadeltaUpdate(RHO, EPSILON);
     p3.AdadeltaUpdate(RHO, EPSILON);
     p3_b.AdadeltaUpdate(RHO, EPSILON);
+  }
+
+  void WriteParamsToFile(const string& filename) {
+    ofstream outfile(filename);
+    if (outfile.is_open()) {
+      outfile.precision(3);
+      f11.WriteToFile(outfile);
+      f12.WriteToFile(outfile);
+      f21.WriteToFile(outfile);
+      f22.WriteToFile(outfile);
+      p1.WriteToFile(outfile);
+      p2.WriteToFile(outfile);
+      p2_b.WriteToFile(outfile);
+      p3.WriteToFile(outfile);
+      p3_b.WriteToFile(outfile);
+      outfile.close();
+      cerr << "Written parameters to: " << filename << endl;
+    } else {
+      cerr << "Failed to open " << filename << endl;
+    }
+  }
+
+  void InitParamsFromFile(const string& filename) {
+    ifstream infile(filename);
+    if (infile.is_open()) {
+      f11.ReadFromFile(infile);
+      f12.ReadFromFile(infile);
+      f21.ReadFromFile(infile);
+      f22.ReadFromFile(infile);
+      p1.ReadFromFile(infile);
+      p2.ReadFromFile(infile);
+      p2_b.ReadFromFile(infile);
+      p3.ReadFromFile(infile);
+      p3_b.ReadFromFile(infile);
+      infile.close();
+      src_len = f11.filter.var.rows();
+      tgt_len = p3.var.rows();
+      kmax = p1.var.rows();
+      filter_len = f11.filter.var.cols();
+      cerr << "Read parameters from: " << filename << endl;
+    } else {
+      cerr << "Could not open: " << filename << endl;
+    }
   }
 
 };
@@ -246,6 +318,7 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
       cerr << "\nError per word: "<< total_error/num_words << "\n";
       p_file.close();
       a_file.close();
+      model.WriteParamsToFile("x.txt");
     } else {
       cerr << "\nUnable to open file\n";
       break;
