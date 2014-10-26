@@ -166,14 +166,13 @@ class Model {
     ElemwiseSigmoid(res);
   }
 
-  adouble PredError(const Col& src_vec, const Col& tgt_vec,
-                    const ACol& sent_vec) {
+  void VecInContext(const Col& src_vec, const Col& tgt_vec,
+                    const ACol& sent_vec, ACol* pred_vec) {
     /* Pass the src_word_vec through non-linearity */
     ACol src_non_linear_vec = Prod(p2.var, src_vec) + p2_b.var;
     ElemwiseSigmoid(&src_non_linear_vec);
     /* Add the processed src word vec with context_vec & convert to tgt_len */
-    ACol pred_tgt_vec = p3.var * (sent_vec + src_non_linear_vec) + p3_b.var;
-    return 1 - CosineSim(pred_tgt_vec, tgt_vec);
+    *pred_vec = p3.var * (sent_vec + src_non_linear_vec) + p3_b.var;
   }
 
   void UpdateParams() {
@@ -299,7 +298,9 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
             /* Compute error as the squared error */
             Col tgt_vec = tgt_word_vecs[tgt_word];
             Col src_vec = src_word_vecs[src_words[src_ix]];
-            adouble error = model.PredError(src_vec, tgt_vec, sent_vec);
+            ACol pred_tgt_vec;
+            model.VecInContext(src_vec, tgt_vec, sent_vec, &pred_tgt_vec);
+            adouble error = 1 - CosineSim(pred_tgt_vec, tgt_vec);
             total_error += error;
             semi_error += error;
             if (++accum == update_every) {
