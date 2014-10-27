@@ -163,14 +163,14 @@ class Model {
     convolve_wide(mat, filter.filter.var, &convolved);
     Max(convolved, k, res);
     *res += filter.bias.var.rowwise().replicate(res->cols());
-    ElemwiseSigmoid(res);
+    ElemwiseTanh(res);
   }
 
   void VecInContext(const Col& src_vec, const Col& tgt_vec,
                     const ACol& sent_vec, ACol* pred_vec) {
     /* Pass the src_word_vec through non-linearity */
     ACol src_non_linear_vec = Prod(p2.var, src_vec) + p2_b.var;
-    ElemwiseSigmoid(&src_non_linear_vec);
+    ElemwiseTanh(&src_non_linear_vec);
     /* Add the processed src word vec with context_vec & convert to tgt_len */
     *pred_vec = p3.var * (sent_vec + src_non_linear_vec) + p3_b.var;
   }
@@ -232,13 +232,14 @@ class Model {
 
 };
 
-void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
+void Train(const string& p_corpus, const string& a_corpus,
+           const string& outfilename, const int& num_iter,
            const int& update_every, const int& filt_len, const int& kmax,
            const vector<Col>& src_word_vecs, const vector<Col>& tgt_word_vecs,
            const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab) {
   adept::Stack s;
   Model model(filt_len, kmax, src_word_vecs[0].size(), tgt_word_vecs[0].size());
-  for (unsigned i=0; i<num_iter; ++i) {
+  for (unsigned i = 0; i < num_iter; ++i) {
     cerr << "\nIteration: " << i+1 << endl;
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
     string p_line, a_line;
@@ -267,8 +268,8 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
         }
         /* Make a sentence matrix */
         Mat src_sent_mat(src_word_vecs[0].size(), src_words.size());
-        for (unsigned i = 0; i < src_words.size(); ++i)
-          src_sent_mat.col(i) = src_word_vecs[src_words[i]];
+        for (unsigned j = 0; j < src_words.size(); ++j)
+          src_sent_mat.col(j) = src_word_vecs[src_words[j]];
         /* Target sentence */
         for (unsigned j=0; j<tgt.size(); ++j) {
           auto it = tgt_vocab.find(tgt[j]);
@@ -319,7 +320,7 @@ void Train(const string& p_corpus, const string& a_corpus, const int& num_iter,
       cerr << "\nError per word: "<< total_error/num_words << "\n";
       p_file.close();
       a_file.close();
-      model.WriteParamsToFile("x.txt");
+      model.WriteParamsToFile(outfilename + "_i" + to_string(i+1));
     } else {
       cerr << "\nUnable to open file\n";
       break;
@@ -364,8 +365,7 @@ int main(int argc, char **argv){
   cerr << "Output vector length: " << tgt_len << endl;
   cerr << "----------------" << endl;
 
-  Train(parallel_corpus, align_corpus, num_iter, update_every, filt_len, kmax,
-        src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab);
-  //WriteParamsToFile(outfilename, model.p11, model.p2, model.p3);
+  Train(parallel_corpus, align_corpus, outfilename, num_iter, update_every,
+        filt_len, kmax, src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab);
   return 1;
 }
