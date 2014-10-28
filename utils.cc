@@ -85,7 +85,7 @@ void GetContext(const vector<unsigned>& words, const vector<string>& words_raw,
 }
 
 /* Try splitting over all whitespaces not just space */
-vector<string> split_line(string& line, char delim) {
+vector<string> split_line(const string& line, char delim) {
   vector<string> words;
   stringstream ss(line);
   string item;

@@ -44,8 +44,7 @@ void GetContext(const vector<unsigned>&, const vector<string>&, unsigned,
 
 ARow TopKVals(ARow, int);
 
-string normalize_word(string&);
-vector<string> split_line(string&, char);
+vector<string> split_line(const string&, char);
 
 void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Col>*);
 

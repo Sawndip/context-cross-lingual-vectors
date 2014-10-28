@@ -72,7 +72,7 @@ class Param {
     getline(in, line);
     vector<string> data = split_line(line, ' ');
     int rows = stoi(data[0]), cols = stoi(data[1]);
-    var = AT(rows, cols);
+    var = AT::Zero(rows, cols);
     for (int i = 2; i < data.size(); ++i)
       var((i-2)/cols, (i-2)%cols) = stod(data[i]);
   }
@@ -118,6 +118,8 @@ class Model {
   Param<AMat, Mat> p1, p2, p3;  // Post-convolution
   Param<ACol, Col> p2_b, p3_b;  // Post-convolution
   int src_len, tgt_len, filter_len, kmax;
+  
+  Model() {}
       
   Model(const int& filt_len, const int& k, const int& src_vec_len,
         const int& tgt_vec_len) {
@@ -166,8 +168,16 @@ class Model {
     ElemwiseTanh(res);
   }
 
-  void VecInContext(const Col& src_vec, const Col& tgt_vec,
-                    const ACol& sent_vec, ACol* pred_vec) {
+  void VecInContext(const Col& src_vec, const ACol& sent_vec, ACol* pred_vec) {
+    /* Pass the src_word_vec through non-linearity */
+    ACol src_non_linear_vec = Prod(p2.var, src_vec) + p2_b.var;
+    ElemwiseTanh(&src_non_linear_vec);
+    /* Add the processed src word vec with context_vec */
+    *pred_vec = sent_vec + src_non_linear_vec;
+  }
+
+  void TransVecInContext(const Col& src_vec, const ACol& sent_vec,
+                         ACol* pred_vec) {
     /* Pass the src_word_vec through non-linearity */
     ACol src_non_linear_vec = Prod(p2.var, src_vec) + p2_b.var;
     ElemwiseTanh(&src_non_linear_vec);
@@ -232,6 +242,13 @@ class Model {
 
 };
 
+/* The function that trains a neural network to convert word vectors
+   from source language to target language while taking the context of
+   the source word in account. The translation pairs are determined using
+   word alignments.
+
+   The parameters are self-explanatory.
+*/
 void Train(const string& p_corpus, const string& a_corpus,
            const string& outfilename, const int& num_iter,
            const int& update_every, const int& filt_len, const int& kmax,
@@ -296,11 +313,11 @@ void Train(const string& p_corpus, const string& a_corpus,
               convolved = true;
             }
             src_ix = old_to_new[src_ix];
-            /* Compute error as the squared error */
+            /* Compute error as 1 - CosineSim() */
             Col tgt_vec = tgt_word_vecs[tgt_word];
             Col src_vec = src_word_vecs[src_words[src_ix]];
             ACol pred_tgt_vec;
-            model.VecInContext(src_vec, tgt_vec, sent_vec, &pred_tgt_vec);
+            model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
             adouble error = 1 - CosineSim(pred_tgt_vec, tgt_vec);
             total_error += error;
             semi_error += error;
@@ -328,44 +345,126 @@ void Train(const string& p_corpus, const string& a_corpus,
   } 
 }
 
+/* Returns the vector representation for a word in context.
+
+ The input is a line with two tab separated columns, where the first column is 
+ the index of the word for which the vector is to be obtained and the second
+ column is the sentence. "model" is the trained neural network, "word_vecs" is
+ a vector of individual word vectors and "vocab" the corresponding the word
+ vocabulary.
+*/
+pair<bool, ACol>
+Decode(const string& line, const vector<Col>& word_vecs,
+       const mapStrUnsigned& vocab, Model* model) {
+    /* Extracting words from sentences */
+    vector<string> sent_and_index = split_line(line, '\t');
+    vector<string> words = split_line(sent_and_index[1], ' ');
+    int query_index = stoi(sent_and_index[0]);
+    /* Read and clean sentence & make sentence matrix */
+    vector<unsigned> clean_words;
+    clean_words.clear();
+    unsigned index = 0, new_query_index = -1;
+    for (unsigned j = 0; j < words.size(); ++j) {
+      auto it = vocab.find(words[j]);
+      if (j == query_index) {
+        if (it == vocab.end()) {
+          cerr << "Word not in vocab: " << words[j] << endl;
+          ACol dummy;
+          return make_pair(false, dummy);
+        } else {
+          clean_words.push_back(it->second);
+          new_query_index = index++;
+        }
+      }
+      if (it != vocab.end() && ConsiderForContext(words[j])) {
+        clean_words.push_back(it->second);
+        index++;
+      }
+    }
+    /* Make a sentence matrix */
+    Mat sent_mat(word_vecs[0].size(), clean_words.size());
+    for (unsigned j = 0; j < clean_words.size(); ++j)
+      sent_mat.col(j) = word_vecs[clean_words[j]];
+    /* Read the alignment line */
+    AMat sent_convolved;
+    ACol sent_vec, pred_vec;
+    model->Convolve(sent_mat, &sent_convolved);
+    sent_vec = sent_convolved * model->p1.var;
+    model->VecInContext(sent_mat.col(new_query_index), sent_vec, &pred_vec);
+    return make_pair(true, pred_vec);
+}
+
 int main(int argc, char **argv){
-  if (argc != 10) {
+  if (argc == 10) {
+    string parallel_corpus = argv[1];
+    string align_corpus = argv[2];
+    string src_vec_corpus = argv[3];
+    string tgt_vec_corpus = argv[4];
+    int filt_len = stoi(argv[5]);
+    int kmax = stoi(argv[6]);
+    int update_every = stoi(argv[7]);
+    int num_iter = stoi(argv[8]);
+    string outfilename = argv[9];
+
+    mapStrUnsigned src_vocab, tgt_vocab;
+    vector<Col> src_word_vecs, tgt_word_vecs;
+    ReadVecsFromFile(src_vec_corpus, &src_vocab, &src_word_vecs);
+    ReadVecsFromFile(tgt_vec_corpus, &tgt_vocab, &tgt_word_vecs);
+    int src_len = src_word_vecs[0].size();
+    int tgt_len = tgt_word_vecs[0].size();
+ 
+    cerr << "Model specification" << endl;
+    cerr << "----------------" << endl;
+    cerr << "Input vector length: " << src_len << endl;
+    cerr << "Filter 1 length: " << filt_len << endl;
+    cerr << "Filter 2 length: " << filt_len - 1 << endl;
+    cerr << "k-max: " << kmax << endl;
+    cerr << "Output vector length: " << tgt_len << endl;
+    cerr << "----------------" << endl;
+
+    Train(parallel_corpus, align_corpus, outfilename, num_iter, update_every,
+          filt_len, kmax, src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab);
+  } else if (argc == 5) {
+    adept::Stack s;
+    string sent_file = argv[1];
+    string word_vecs_file = argv[2];
+    string params_file = argv[3];
+    string out_file = argv[4];
+
+    mapStrUnsigned vocab;
+    vector<Col> word_vecs;
+    ReadVecsFromFile(word_vecs_file, &vocab, &word_vecs);
+    cerr << "Vectors read" << endl;
+    Model model;
+    model.InitParamsFromFile(params_file);
+    cerr << "Initialized" << endl; 
+    ifstream infile(sent_file.c_str());
+    if (infile.is_open()) {
+      string line;
+      ofstream outfile(out_file.c_str());
+      while (getline(infile, line)) {
+        Param<ACol, Col> word_in_context_vec;
+        auto res = Decode(line, word_vecs, vocab, &model);
+        if (res.first) {
+          word_in_context_vec.var = res.second;
+          word_in_context_vec.WriteToFile(outfile);
+        } else {
+          outfile << "NULL" << endl;
+        }
+      }
+      infile.close();
+      outfile.close();
+    } else {
+      cerr << "Could not open file " << infile << endl;
+    }
+  } else {
     cerr << "Usage: "<< argv[0] << " parallel_corpus " << " alignment_corpus "
          << " src_vec_corpus " << " tgt_vec_corpus " << " filt_size " << "k_max"
          << " update_every " << " num_iter " << " outfilename\n";
-    cerr << "Recommended: " << argv[0] << " parallel_corpus " 
+    cerr << "Recommended: " << argv[0] << " parallel_corpus "
          << " alignment_corpus " << " src_vec_corpus " << " tgt_vec_corpus "
          << " 3 5 10 2" << " out.txt\n";
-    exit(0);
   }
-  
-  string parallel_corpus = argv[1];
-  string align_corpus = argv[2];
-  string src_vec_corpus = argv[3];
-  string tgt_vec_corpus = argv[4];
-  int filt_len = stoi(argv[5]);
-  int kmax = stoi(argv[6]);
-  int update_every = stoi(argv[7]);
-  int num_iter = stoi(argv[8]);
-  string outfilename = argv[9];
 
-  mapStrUnsigned src_vocab, tgt_vocab;
-  vector<Col> src_word_vecs, tgt_word_vecs;
-  ReadVecsFromFile(src_vec_corpus, &src_vocab, &src_word_vecs);
-  ReadVecsFromFile(tgt_vec_corpus, &tgt_vocab, &tgt_word_vecs);
-  int src_len = src_word_vecs[0].size();
-  int tgt_len = tgt_word_vecs[0].size();
- 
-  cerr << "Model specification" << endl;
-  cerr << "----------------" << endl;
-  cerr << "Input vector length: " << src_len << endl;
-  cerr << "Filter 1 length: " << filt_len << endl;
-  cerr << "Filter 2 length: " << filt_len - 1 << endl;
-  cerr << "k-max: " << kmax << endl;
-  cerr << "Output vector length: " << tgt_len << endl;
-  cerr << "----------------" << endl;
-
-  Train(parallel_corpus, align_corpus, outfilename, num_iter, update_every,
-        filt_len, kmax, src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab);
   return 1;
 }
