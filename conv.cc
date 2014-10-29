@@ -49,12 +49,15 @@ class Param {
     for (unsigned i = 0; i < var.rows(); ++i) {
       for (unsigned j = 0; j < var.cols(); ++j) {
         double g = var(i, j).get_gradient();
-        double accum_g = rho * del_grad_var(i, j) + (1 - rho) * g * g;
-        double del = g * sqrt(del_var(i, j) + epsilon) / sqrt(accum_g + epsilon);
-        var(i, j) -= del;  // Update the variable
-        /* Update memory */
-        del_grad_var(i, j) = accum_g;
-        del_var(i, j) = rho * del_var(i, j) + (1 - rho) * del * del;
+        if (g) {
+          double accum_g = rho * del_grad_var(i, j) + (1 - rho) * g * g;
+          double del = g * sqrt(del_var(i, j) + epsilon);
+          del /= sqrt(accum_g + epsilon);
+          var(i, j) -= del;  // Update the variable
+          /* Update memory */
+          del_grad_var(i, j) = accum_g;
+          del_var(i, j) = rho * del_var(i, j) + (1 - rho) * del * del;
+        }
       }
     }
   }
@@ -117,13 +120,14 @@ class Model {
   /* The parameters of the model */
   Filter f11, f12, f21, f22;  // Convolution
   Param<AMat, Mat> p1, p2, p3;  // Post-convolution
-  Param<ACol, Col> p2_b, p3_b;  // Post-convolution
+  Param<ACol, Col> p2_b, p3_b, tgt_bias;  // Post-convolution
   int src_len, tgt_len, filter_len, kmax;
   
   Model() {}
       
   Model(const int& filt_len, const int& k, const int& src_vec_len,
-        const int& tgt_vec_len) {
+        const int& tgt_vec_len, const int& num_src_words,
+        const int& num_tgt_words) {
     src_len = src_vec_len;
     tgt_len = tgt_vec_len;
     filter_len = filt_len;
@@ -143,6 +147,7 @@ class Model {
     p2_b.Init(src_len, 1);
     p3.Init(tgt_len, src_len);
     p3_b.Init(tgt_len, 1);
+    tgt_bias.Init(num_tgt_words, 1);
   }
 
   void Convolve(const Mat& sent_mat, AMat* res) {
@@ -202,6 +207,7 @@ class Model {
     p2_b.AdadeltaUpdate(RHO, EPSILON);
     p3.AdadeltaUpdate(RHO, EPSILON);
     p3_b.AdadeltaUpdate(RHO, EPSILON);
+    tgt_bias.AdadeltaUpdate(RHO, EPSILON);
   }
 
   void WriteParamsToFile(const string& filename) {
@@ -217,6 +223,7 @@ class Model {
       p2_b.WriteToFile(outfile);
       p3.WriteToFile(outfile);
       p3_b.WriteToFile(outfile);
+      tgt_bias.WriteToFile(outfile);
       outfile.close();
       cerr << "Written parameters to: " << filename << endl;
     } else {
@@ -236,6 +243,7 @@ class Model {
       p2_b.ReadFromFile(infile);
       p3.ReadFromFile(infile);
       p3_b.ReadFromFile(infile);
+      tgt_bias.ReadFromFile(infile);
       infile.close();
       src_len = f11.filter.var.rows();
       tgt_len = p3.var.rows();
@@ -262,7 +270,8 @@ void Train(const string& p_corpus, const string& a_corpus,
            const vector<Col>& src_word_vecs, const vector<Col>& tgt_word_vecs,
            const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab) {
   adept::Stack s;
-  Model model(filt_len, kmax, src_word_vecs[0].size(), tgt_word_vecs[0].size());
+  Model model(filt_len, kmax, src_word_vecs[0].size(), tgt_word_vecs[0].size(),
+              src_word_vecs.size(), tgt_word_vecs.size());
   for (unsigned i = 0; i < num_iter; ++i) {
     cerr << "\nIteration: " << i+1 << endl;
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
@@ -324,7 +333,8 @@ void Train(const string& p_corpus, const string& a_corpus,
             Col src_vec = src_word_vecs[src_words[src_ix]];
             ACol pred_tgt_vec;
             model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
-            adouble error = CosineLoss(pred_tgt_vec, tgt_vec);
+            adouble error = LossNCE(pred_tgt_vec, tgt_vec, tgt_word,
+                                    tgt_word_vecs, model.tgt_bias.var, 10);
             total_error += error;
             semi_error += error;
             if (++accum == update_every) {
