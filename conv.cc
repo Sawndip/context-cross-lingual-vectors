@@ -21,6 +21,7 @@
 #include <random>
 #include <adept.h>
 
+#include "loss.h"
 #include "utils.h"
 #include "vecops.h"
 
@@ -165,13 +166,13 @@ class Model {
     convolve_wide(mat, filter.filter.var, &convolved);
     Max(convolved, k, res);
     *res += filter.bias.var.rowwise().replicate(res->cols());
-    ElemwiseTanh(res);
+    ElemwiseSigmoid(res);
   }
 
   void VecInContext(const Col& src_vec, const ACol& sent_vec, ACol* pred_vec) {
     /* Pass the src_word_vec through non-linearity */
     ACol src_non_linear_vec = Prod(p2.var, src_vec) + p2_b.var;
-    ElemwiseTanh(&src_non_linear_vec);
+    ElemwiseSigmoid(&src_non_linear_vec);
     /* Add the processed src word vec with context_vec */
     *pred_vec = sent_vec + src_non_linear_vec;
   }
@@ -180,9 +181,15 @@ class Model {
                          ACol* pred_vec) {
     /* Pass the src_word_vec through non-linearity */
     ACol src_non_linear_vec = Prod(p2.var, src_vec) + p2_b.var;
-    ElemwiseTanh(&src_non_linear_vec);
+    ElemwiseSigmoid(&src_non_linear_vec);
     /* Add the processed src word vec with context_vec & convert to tgt_len */
     *pred_vec = p3.var * (sent_vec + src_non_linear_vec) + p3_b.var;
+  }
+
+  void Baseline(const Col& src_vec, ACol* pred_vec) {
+    ACol temp = Prod(p2.var, src_vec) + p2_b.var;
+    ElemwiseTanh(&temp);
+    *pred_vec = p3.var * temp + p3_b.var;
   }
 
   void UpdateParams() {
@@ -313,12 +320,11 @@ void Train(const string& p_corpus, const string& a_corpus,
               convolved = true;
             }
             src_ix = old_to_new[src_ix];
-            /* Compute error as 1 - CosineSim() */
             Col tgt_vec = tgt_word_vecs[tgt_word];
             Col src_vec = src_word_vecs[src_words[src_ix]];
             ACol pred_tgt_vec;
             model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
-            adouble error = 1 - CosineSim(pred_tgt_vec, tgt_vec);
+            adouble error = CosineLoss(pred_tgt_vec, tgt_vec);
             total_error += error;
             semi_error += error;
             if (++accum == update_every) {
@@ -463,7 +469,10 @@ int main(int argc, char **argv){
          << " update_every " << " num_iter " << " outfilename\n";
     cerr << "Recommended: " << argv[0] << " parallel_corpus "
          << " alignment_corpus " << " src_vec_corpus " << " tgt_vec_corpus "
-         << " 3 5 10 2" << " out.txt\n";
+         << " 3 5 10 2" << " out.txt\n\n";
+
+    cerr << "Usage:" << argv[0] << "benchmark word_vecs_file"
+         << "context_params_file out_vectors\n";
   }
 
   return 1;
