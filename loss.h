@@ -9,5 +9,6 @@ double CosineLoss(const Col& a, const Col&b);
 
 adouble NoiseMarginLoss(const ACol&, const Col&,
                         const vector<Col>&, const int&);
-
+adouble LossNCE(const ACol&, const Col&, const unsigned&, const vector<Col>&,
+                const ACol&, const int&);
 #endif
