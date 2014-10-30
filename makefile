@@ -1,19 +1,17 @@
 CC = g++
 INCLUDES = -I /opt/tools/eigen-eigen-ffa86ffb5570 
 CFLAGS = -std=c++11 -O3 -DADEPT_STACK_THREAD_UNSAFE -ffast-math
+CFLAGS_EVAL = -std=c++11 -O3
 LIBS = -ladept
-SRCS = train.cc utils.cc vecops.cc
-SRCS_CONV = conv.cc utils.cc vecops.cc
-SRCS_MAN = train-manual.cc utils.cc vecops.cc
-OUTPUT = train.o
-OUTPUT_CONV = conv.o
-OUTPUT_MAN = train-manual.o
+LIBS_EVAL = -fopenmp
+SRCS = conv.cc utils.cc vecops.cc loss.cc
+SRCS_EVAL = eval.cc
+OUTPUT = conv.o
+OUTPUT_EVAL = eval.o
 
-compile:
-	$(CC) $(INCLUDES) $(CFLAGS) $(SRCS) -o $(OUTPUT) $(LIBS)
 conv:
-	$(CC) $(INCLUDES) $(CFLAGS) $(SRCS_CONV) -o $(OUTPUT_CONV) $(LIBS)
+	$(CC) $(INCLUDES) $(CFLAGS) $(SRCS) -o $(OUTPUT) $(LIBS)
+eval:
+	$(CC) $(INCLUDES) $(CFLAGS_EVAL) $(SRCS_EVAL) -o $(OUTPUT_EVAL) $(LIBS_EVAL)
 clean:
 	$(RM) *.o *~
-manual:
-	$(CC) $(INCLUDES) $(CFLAGS) $(SRCS_MAN) -o $(OUTPUT_MAN) $(LIBS)
