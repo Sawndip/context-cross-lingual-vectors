@@ -20,6 +20,8 @@ adouble NoiseMarginLoss(const ACol& pred, const Col& gold,
   return error;
 }
 
+default_random_engine generator;
+uniform_real_distribution<double> distribution(0,1);
 adouble LossNCE(const ACol& hidden, const Col& tgt_vec,
                 const unsigned& tgt_word, const vector<Col>& tgt_vecs,
                 const ACol& tgt_bias, const int& k) {
@@ -34,7 +36,7 @@ adouble LossNCE(const ACol& hidden, const Col& tgt_vec,
     lp += log(real_given_w);
   }
   for (int i = 0; i < k; ++i) {
-    unsigned rand_word = rand() % tgt_vecs.size();
+    unsigned rand_word = distribution(generator) * tgt_vecs.size();
     adouble score = DotProdCol(hidden, tgt_vecs[rand_word]) +
                     tgt_bias[rand_word];
     adouble joint_real_w = p_real * exp(score);
@@ -42,5 +44,19 @@ adouble LossNCE(const ACol& hidden, const Col& tgt_vec,
     adouble noise_given_w = joint_noise_w / (joint_real_w + joint_noise_w);
     lp += log(noise_given_w);
   }
+  return -1.0 * lp;
+}
+
+adouble NegLogProb(const ACol& hidden, const Col& tgt_vec,
+                  const unsigned& tgt_word, const vector<Col>& tgt_vecs,
+                  const ACol& tgt_bias) {
+  adouble lp = 0.0;
+  adouble word_score = DotProdCol(hidden, tgt_vec) + tgt_bias[tgt_word];
+  // Sum over the vocab here
+  for (int i = 0; i < tgt_vecs.size(); ++i) {
+    adouble score = DotProdCol(hidden, tgt_vecs[i]) + tgt_bias[i];
+    lp = LogAdd(lp, score);
+  }
+  lp = word_score - lp;
   return -1.0 * lp;
 }
