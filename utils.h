@@ -32,6 +32,7 @@ typedef std::tr1::unordered_map<int, Mat> mapIntMat;
 typedef std::tr1::unordered_map<int, AMat> mapIntAMat;
 typedef std::tr1::unordered_map<int, unsigned> mapIntUnsigned;
 typedef std::tr1::unordered_map<unsigned, unsigned> mapUnsUns;
+typedef std::tr1::unordered_map<unsigned, double> mapUnsDouble;
 
 typedef std::tr1::unordered_map<string, unsigned> mapStrUnsigned;
 typedef std::tr1::unordered_map<int, unsigned> mapIntUnsigned;
@@ -41,8 +42,10 @@ bool ConsiderForContext(const string&);
 bool ConsiderForPred(const string&);
 void GetContext(const vector<unsigned>&, const vector<string>&, unsigned,
                 int, mapIntUnsigned*);
+void SetUnigramBias(const string&, const mapStrUnsigned&, const int&, ACol*);
 
 ARow TopKVals(ARow, int);
+adouble LogAdd(adouble, adouble);
 
 vector<string> split_line(const string&, char);
 

@@ -225,9 +225,9 @@ class Model {
       p3_b.WriteToFile(outfile);
       tgt_bias.WriteToFile(outfile);
       outfile.close();
-      cerr << "Written parameters to: " << filename << endl;
+      cerr << "\nWritten parameters to: " << filename;
     } else {
-      cerr << "Failed to open " << filename << endl;
+      cerr << "\nFailed to open " << filename;
     }
   }
 
@@ -249,9 +249,9 @@ class Model {
       tgt_len = p3.var.rows();
       kmax = p1.var.rows();
       filter_len = f11.filter.var.cols();
-      cerr << "Read parameters from: " << filename << endl;
+      cerr << "\nRead parameters from: " << filename;
     } else {
-      cerr << "Could not open: " << filename << endl;
+      cerr << "\nCould not open: " << filename;
     }
   }
 
@@ -272,13 +272,14 @@ void Train(const string& p_corpus, const string& a_corpus,
   adept::Stack s;
   Model model(filt_len, kmax, src_word_vecs[0].size(), tgt_word_vecs[0].size(),
               src_word_vecs.size(), tgt_word_vecs.size());
+  SetUnigramBias(p_corpus, tgt_vocab, 1, &model.tgt_bias.var);
   for (unsigned i = 0; i < num_iter; ++i) {
     cerr << "\nIteration: " << i+1 << endl;
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
     string p_line, a_line;
     vector<int> src_words, tgt_words;
     unsigned num_words = 0, erroneous_cases = 0;
-    adouble total_error = 0, semi_error = 0;
+    adouble total_error = 0, semi_error = 0, nllh = 0, lnZ = 0;
     int accum = 0;
     s.new_recording();
     if (p_file.is_open() && a_file.is_open()) {
@@ -299,6 +300,7 @@ void Train(const string& p_corpus, const string& a_corpus,
             old_to_new[j] = index++;
           }
         }
+        if (src_words.size() <= 1) continue;
         /* Make a sentence matrix */
         Mat src_sent_mat(src_word_vecs[0].size(), src_words.size());
         for (unsigned j = 0; j < src_words.size(); ++j)
@@ -334,7 +336,11 @@ void Train(const string& p_corpus, const string& a_corpus,
             ACol pred_tgt_vec;
             model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
             adouble error = LossNCE(pred_tgt_vec, tgt_vec, tgt_word,
-                                    tgt_word_vecs, model.tgt_bias.var, 10);
+                                    tgt_word_vecs, model.tgt_bias.var, 50);
+            //auto val = NegLogProb(pred_tgt_vec, tgt_vec, tgt_word,
+            //                        tgt_word_vecs, model.tgt_bias.var);
+            //nllh += val.first;
+            //lnZ += val.second;
             total_error += error;
             semi_error += error;
             if (++accum == update_every) {
@@ -350,7 +356,9 @@ void Train(const string& p_corpus, const string& a_corpus,
         }
         cerr << num_words << "\r";
       }
-      cerr << "\nError per word: "<< total_error/num_words << "\n";
+      cerr << "\nError per word: "<< total_error/num_words;// << "\n";
+      //cerr << "\nN LLH per word: "<< nllh/num_words;// << "\n";
+      //cerr << "\nN lnZ per word: "<< lnZ/num_words;// << "\n";
       p_file.close();
       a_file.close();
       model.WriteParamsToFile(outfilename + "_i" + to_string(i+1));
@@ -409,6 +417,7 @@ Decode(const string& line, const vector<Col>& word_vecs,
     model->VecInContext(sent_mat.col(new_query_index), sent_vec, &pred_vec);
     return make_pair(true, pred_vec);
 }
+
 
 int main(int argc, char **argv){
   if (argc == 10) {

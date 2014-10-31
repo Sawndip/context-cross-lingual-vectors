@@ -44,6 +44,15 @@ bool ConsiderForContext(const string& a) {
   return CONSIDER_CONTEXT[a];
 }
 
+adouble LogAdd(adouble lna, adouble lnb) {
+  if (lna == 1.0) return lnb;
+  if (lnb == 1.0) return lna;
+
+  adouble diff = lna - lnb;
+  if (diff < 500.0) return log(exp(diff) + 1) + lnb;
+  else return lna;
+}
+
 ARow TopKVals(ARow r, int k) {
   ARow res(k);
   /* If the row size <= k, put zeros on the extra columns */
@@ -81,6 +90,31 @@ void GetContext(const vector<unsigned>& words, const vector<string>& words_raw,
         ConsiderForContext(words_raw[word_index])) {
         context_words[i] = words[word_index];
     }
+  }
+}
+
+void SetUnigramBias(const string& p_file, const mapStrUnsigned& vocab,
+                    const int& column, ACol* res) {
+  ifstream infile(p_file.c_str());
+  if (infile.is_open()) {
+    string line;
+    while (getline(infile, line)) {
+      vector<string> lines = split_line(line, '\t');
+      line = lines[column];
+      vector<string> words = split_line(line, ' ');
+      for (unsigned j = 0; j < words.size(); ++j) {
+        auto it = vocab.find(words[j]);
+        if (it != vocab.end() && ConsiderForContext(words[j]))
+            (*res)(it->second) += 1;
+      }
+    }
+    /* Normalize the counts to get unigram distribution */
+    adouble sum = res->sum();
+    for (int i = 0; i < res->rows(); ++i)
+      (*res)(i) = log((*res)(i) / sum);
+  } else {
+    cerr <<"\nCould not open file: " << p_file;
+    exit(0);
   }
 }
 
