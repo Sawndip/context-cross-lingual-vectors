@@ -104,8 +104,8 @@ void SetUnigramBias(const string& p_file, const mapStrUnsigned& vocab,
       vector<string> words = split_line(line, ' ');
       for (unsigned j = 0; j < words.size(); ++j) {
         auto it = vocab.find(words[j]);
-        if (it != vocab.end() && ConsiderForContext(words[j]))
-            (*res)(it->second) += 1;
+        if (it != vocab.end())
+          (*res)(it->second) += 1;
       }
     }
     /* Normalize the counts to get unigram distribution */
@@ -130,26 +130,57 @@ vector<string> split_line(const string& line, char delim) {
   return words;
 }
 
-void ReadVecsFromFile(const string& vec_file_name, mapStrUnsigned* t_vocab,
+void ReadVecsFromFile(const string& p_corpus, const int& column,
+                      const string& vec_file_name, mapStrUnsigned* t_vocab,
                       vector<Col>* word_vecs) {
+  /* First read words from the training file */
+  mapStrUnsigned train_vocab;
+  ifstream infile(p_corpus.c_str());
+  if (infile.is_open()) {
+    string line;
+    while (getline(infile, line)) {
+      vector<string> lines = split_line(line, '\t');
+      line = lines[column];
+      vector<string> words = split_line(line, ' ');
+      for (unsigned j = 0; j < words.size(); ++j) {
+        auto it = train_vocab.find(words[j]);
+        if (it != train_vocab.end())
+          train_vocab[words[j]] += 1;
+        else if (ConsiderForContext(words[j]))
+          train_vocab[words[j]] = 1;
+      }
+    }
+  } else {
+    cerr << "Could not open " << p_corpus;
+    exit(0);
+  }
+
+  /* Read vectors for only words in the train file vocab 
+     Also, exclude singleton words */
   ifstream vec_file(vec_file_name.c_str());
   mapStrUnsigned& vocab = *t_vocab;
+  unsigned vocab_size = 0;
   if (vec_file.is_open()) {
     string line;
     vocab.clear();
     while (getline(vec_file, line)) {
       vector<string> vector_stuff = split_line(line, ' ');
       string word = vector_stuff[0];
-      Col word_vec = Col::Zero(vector_stuff.size()-1);
-      for (unsigned i = 0; i < word_vec.size(); ++i)
-        word_vec(i, 0) = stof(vector_stuff[i+1]);
-      vocab[word] = vocab.size();
-      word_vecs->push_back(word_vec);
+      auto it = train_vocab.find(word);
+      if (it != train_vocab.end() && it->second > 1) {
+        Col word_vec = Col::Zero(vector_stuff.size()-1);
+        for (unsigned i = 0; i < word_vec.size(); ++i)
+          word_vec(i, 0) = stof(vector_stuff[i+1]);
+        vocab[word] = vocab_size++;
+        word_vecs->push_back(word_vec);
+      }
     }
     cerr << "Read: " << vec_file_name << endl;
     cerr << "Vocab length: " << word_vecs->size() << endl;
     cerr << "Vector length: " << (*word_vecs)[0].size() << endl << endl;
     vec_file.close();
+
+    assert (word_vecs->size() == vocab.size());
   } else {
     cerr << "Could not open " << vec_file;
     exit(0);

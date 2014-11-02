@@ -13,6 +13,9 @@
 #include <Eigen/Core>
 #include <adept.h>
 
+#define SOURCE 0
+#define TARGET 1
+
 using adept::adouble;
 using namespace std;
 using namespace Eigen;
@@ -49,6 +52,7 @@ adouble LogAdd(adouble, adouble);
 
 vector<string> split_line(const string&, char);
 
-void ReadVecsFromFile(const string&, mapStrUnsigned*, vector<Col>*);
+void ReadVecsFromFile(const string&, const int&, const string&,
+                      mapStrUnsigned*, vector<Col>*);
 
 #endif

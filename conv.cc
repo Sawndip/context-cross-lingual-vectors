@@ -272,7 +272,7 @@ void Train(const string& p_corpus, const string& a_corpus,
   adept::Stack s;
   Model model(filt_len, kmax, src_word_vecs[0].size(), tgt_word_vecs[0].size(),
               src_word_vecs.size(), tgt_word_vecs.size());
-  SetUnigramBias(p_corpus, tgt_vocab, 1, &model.tgt_bias.var);
+  SetUnigramBias(p_corpus, tgt_vocab, TARGET, &model.tgt_bias.var);
   for (unsigned i = 0; i < num_iter; ++i) {
     cerr << "\nIteration: " << i+1 << endl;
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
@@ -293,9 +293,9 @@ void Train(const string& p_corpus, const string& a_corpus,
         /* Read and Clean Source sentence */
         mapUnsUns old_to_new;
         unsigned index = 0;
-        for (unsigned j=0; j<src.size(); ++j) {
+        for (unsigned j = 0; j < src.size(); ++j) {
           auto it = src_vocab.find(src[j]);
-          if (it != src_vocab.end() && ConsiderForContext(src[j])) {
+          if (it != src_vocab.end()) {
             src_words.push_back(it->second);
             old_to_new[j] = index++;
           }
@@ -337,10 +337,10 @@ void Train(const string& p_corpus, const string& a_corpus,
             model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
             adouble error = LossNCE(pred_tgt_vec, tgt_vec, tgt_word,
                                     tgt_word_vecs, model.tgt_bias.var, 50);
-            //auto val = NegLogProb(pred_tgt_vec, tgt_vec, tgt_word,
-            //                        tgt_word_vecs, model.tgt_bias.var);
-            //nllh += val.first;
-            //lnZ += val.second;
+            auto val = NegLogProb(pred_tgt_vec, tgt_vec, tgt_word,
+                                    tgt_word_vecs, model.tgt_bias.var);
+            nllh += val.first;
+            lnZ += val.second;
             total_error += error;
             semi_error += error;
             if (++accum == update_every) {
@@ -357,8 +357,8 @@ void Train(const string& p_corpus, const string& a_corpus,
         cerr << num_words << "\r";
       }
       cerr << "\nError per word: "<< total_error/num_words;// << "\n";
-      //cerr << "\nN LLH per word: "<< nllh/num_words;// << "\n";
-      //cerr << "\nN lnZ per word: "<< lnZ/num_words;// << "\n";
+      cerr << "\nN LLH per word: "<< nllh/num_words;// << "\n";
+      cerr << "\nN lnZ per word: "<< lnZ/num_words;// << "\n";
       p_file.close();
       a_file.close();
       model.WriteParamsToFile(outfilename + "_i" + to_string(i+1));
@@ -433,8 +433,10 @@ int main(int argc, char **argv){
 
     mapStrUnsigned src_vocab, tgt_vocab;
     vector<Col> src_word_vecs, tgt_word_vecs;
-    ReadVecsFromFile(src_vec_corpus, &src_vocab, &src_word_vecs);
-    ReadVecsFromFile(tgt_vec_corpus, &tgt_vocab, &tgt_word_vecs);
+    ReadVecsFromFile(parallel_corpus, SOURCE, src_vec_corpus, &src_vocab,
+                     &src_word_vecs);
+    ReadVecsFromFile(parallel_corpus, TARGET, tgt_vec_corpus, &tgt_vocab,
+                     &tgt_word_vecs);
     int src_len = src_word_vecs[0].size();
     int tgt_len = tgt_word_vecs[0].size();
  
@@ -451,14 +453,16 @@ int main(int argc, char **argv){
           filt_len, kmax, src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab);
   } else if (argc == 5) {
     adept::Stack s;
-    string sent_file = argv[1];
-    string word_vecs_file = argv[2];
-    string params_file = argv[3];
-    string out_file = argv[4];
+    string parallel_corpus = argv[1];
+    string sent_file = argv[2];
+    string word_vecs_file = argv[3];
+    string params_file = argv[4];
+    string out_file = argv[5];
 
     mapStrUnsigned vocab;
     vector<Col> word_vecs;
-    ReadVecsFromFile(word_vecs_file, &vocab, &word_vecs);
+    ReadVecsFromFile(parallel_corpus, SOURCE, word_vecs_file, &vocab,
+                     &word_vecs);
     cerr << "Vectors read" << endl;
     Model model;
     model.InitParamsFromFile(params_file);
