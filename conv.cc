@@ -270,9 +270,15 @@ void Train(const string& p_corpus, const string& a_corpus,
            const vector<Col>& src_word_vecs, const vector<Col>& tgt_word_vecs,
            const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab) {
   adept::Stack s;
+  AliasSampler sampler;
+  vector<double> noise_dist(tgt_vocab.size(), 0.0);
   Model model(filt_len, kmax, src_word_vecs[0].size(), tgt_word_vecs[0].size(),
               src_word_vecs.size(), tgt_word_vecs.size());
-  SetUnigramBias(p_corpus, tgt_vocab, TARGET, &model.tgt_bias.var);
+  SetUnigramBias(p_corpus, tgt_vocab, TARGET, &model.tgt_bias.var,
+                 &noise_dist);
+  //for (int i = 0; i < model.tgt_bias.var.rows(); ++i)
+  //  noise_dist[i] = exp(model.tgt_bias.var(i, 0));
+  sampler.Init(noise_dist);
   for (unsigned i = 0; i < num_iter; ++i) {
     cerr << "\nIteration: " << i+1 << endl;
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
@@ -336,13 +342,16 @@ void Train(const string& p_corpus, const string& a_corpus,
             ACol pred_tgt_vec;
             model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
             adouble error = LossNCE(pred_tgt_vec, tgt_vec, tgt_word,
-                                    tgt_word_vecs, model.tgt_bias.var, 50);
+                                    tgt_word_vecs, model.tgt_bias.var, 50,
+                                    noise_dist, sampler);
             auto val = NegLogProb(pred_tgt_vec, tgt_vec, tgt_word,
-                                    tgt_word_vecs, model.tgt_bias.var);
+                                  tgt_word_vecs, model.tgt_bias.var);
             nllh += val.first;
             lnZ += val.second;
             total_error += error;
             semi_error += error;
+            //total_error += val.first;
+            //semi_error += val.first;
             if (++accum == update_every) {
               semi_error.set_gradient(1.0);
               s.compute_adjoint();
@@ -358,7 +367,7 @@ void Train(const string& p_corpus, const string& a_corpus,
       }
       cerr << "\nError per word: "<< total_error/num_words;// << "\n";
       cerr << "\nN LLH per word: "<< nllh/num_words;// << "\n";
-      cerr << "\nN lnZ per word: "<< lnZ/num_words;// << "\n";
+      cerr << "\nln(Z) per word: "<< lnZ/num_words;// << "\n";
       p_file.close();
       a_file.close();
       model.WriteParamsToFile(outfilename + "_i" + to_string(i+1));

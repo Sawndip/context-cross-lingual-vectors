@@ -13,6 +13,8 @@
 #include <Eigen/Core>
 #include <adept.h>
 
+#include "alias_sampler.h"
+
 #define SOURCE 0
 #define TARGET 1
 
@@ -45,7 +47,8 @@ bool ConsiderForContext(const string&);
 bool ConsiderForPred(const string&);
 void GetContext(const vector<unsigned>&, const vector<string>&, unsigned,
                 int, mapIntUnsigned*);
-void SetUnigramBias(const string&, const mapStrUnsigned&, const int&, ACol*);
+void SetUnigramBias(const string&, const mapStrUnsigned&, const int&, ACol*,
+                    vector<double>*);
 
 ARow TopKVals(ARow, int);
 adouble LogAdd(adouble, adouble);
