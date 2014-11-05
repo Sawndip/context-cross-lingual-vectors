@@ -276,8 +276,6 @@ void Train(const string& p_corpus, const string& a_corpus,
               src_word_vecs.size(), tgt_word_vecs.size());
   SetUnigramBias(p_corpus, tgt_vocab, TARGET, &model.tgt_bias.var,
                  &noise_dist);
-  //for (int i = 0; i < model.tgt_bias.var.rows(); ++i)
-  //  noise_dist[i] = exp(model.tgt_bias.var(i, 0));
   sampler.Init(noise_dist);
   for (unsigned i = 0; i < num_iter; ++i) {
     cerr << "\nIteration: " << i+1 << endl;
@@ -297,20 +295,24 @@ void Train(const string& p_corpus, const string& a_corpus,
         src_words.clear();
         tgt_words.clear();
         /* Read and Clean Source sentence */
-        mapUnsUns old_to_new;
-        unsigned index = 0;
+        unsigned src_len = 0;
         for (unsigned j = 0; j < src.size(); ++j) {
           auto it = src_vocab.find(src[j]);
           if (it != src_vocab.end()) {
             src_words.push_back(it->second);
-            old_to_new[j] = index++;
+            src_len++;
+          } else {
+            src_words.push_back(-1); // word not in vocab
           }
         }
-        if (src_words.size() <= 1) continue;
+        if (src_len <= 1) continue;
         /* Make a sentence matrix */
-        Mat src_sent_mat(src_word_vecs[0].size(), src_words.size());
-        for (unsigned j = 0; j < src_words.size(); ++j)
-          src_sent_mat.col(j) = src_word_vecs[src_words[j]];
+        unsigned index = -1;
+        Mat src_sent_mat(src_word_vecs[0].size(), src_len);
+        for (unsigned j = 0; j < src_words.size(); ++j) {
+          if (src_words[j] != -1)
+            src_sent_mat.col(++index) = src_word_vecs[src_words[j]];
+        }
         /* Target sentence */
         for (unsigned j=0; j<tgt.size(); ++j) {
           auto it = tgt_vocab.find(tgt[j]);
@@ -319,26 +321,20 @@ void Train(const string& p_corpus, const string& a_corpus,
           else
             tgt_words.push_back(-1); // word not in vocab
         }
-        /* Read the alignment line */
+        /* Get sentence vector by convolution */
         AMat sent_convolved;
-        ACol sent_vec;
-        bool convolved = false;
+        model.Convolve(src_sent_mat, &sent_convolved);
+        ACol sent_vec = sent_convolved * model.p1.var;
+        /* Read alignments and train */
         vector<string> src_tgt_pairs = split_line(a_line, ' ');
         for (unsigned j = 0; j < src_tgt_pairs.size(); ++j) {
           vector<string> index_pair = split_line(src_tgt_pairs[j], '-');
           unsigned src_ix = stoi(index_pair[0]), tgt_ix = stoi(index_pair[1]);
-          unsigned tgt_word = tgt_words[tgt_ix];
+          unsigned tgt_word = tgt_words[tgt_ix], src_word = src_words[src_ix];
           /* If both words are in the cleaned sentences, train on this */
-          if (tgt_words[tgt_ix] != -1 &&
-              old_to_new.find(src_ix) != old_to_new.end()) {
-            if (!convolved) {
-              model.Convolve(src_sent_mat, &sent_convolved);
-              sent_vec = sent_convolved * model.p1.var;
-              convolved = true;
-            }
-            src_ix = old_to_new[src_ix];
+          if (tgt_word != -1 && src_word != -1) {
             Col tgt_vec = tgt_word_vecs[tgt_word];
-            Col src_vec = src_word_vecs[src_words[src_ix]];
+            Col src_vec = src_word_vecs[src_word];
             ACol pred_tgt_vec;
             model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
             adouble error = LossNCE(pred_tgt_vec, tgt_vec, tgt_word,
