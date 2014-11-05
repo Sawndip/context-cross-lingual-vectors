@@ -94,7 +94,8 @@ void GetContext(const vector<unsigned>& words, const vector<string>& words_raw,
 }
 
 void SetUnigramBias(const string& p_file, const mapStrUnsigned& vocab,
-                    const int& column, ACol* res) {
+                    const int& column, ACol* res,
+                    vector<double>* dist) {
   ifstream infile(p_file.c_str());
   if (infile.is_open()) {
     string line;
@@ -104,14 +105,19 @@ void SetUnigramBias(const string& p_file, const mapStrUnsigned& vocab,
       vector<string> words = split_line(line, ' ');
       for (unsigned j = 0; j < words.size(); ++j) {
         auto it = vocab.find(words[j]);
-        if (it != vocab.end())
+        if (it != vocab.end()) {
           (*res)(it->second) += 1;
+          (*dist)[it->second] += 1;
+        }
       }
     }
     /* Normalize the counts to get unigram distribution */
     adouble sum = res->sum();
-    for (int i = 0; i < res->rows(); ++i)
-      (*res)(i) = log((*res)(i) / sum);
+    double sum_double = accumulate(dist->begin(), dist->end(), 0);
+    for (int i = 0; i < res->rows(); ++i) {
+      (*res)(i) = log( (*res)(i) / sum );
+      (*dist)[i] /= sum_double;
+    }
   } else {
     cerr <<"\nCould not open file: " << p_file;
     exit(0);
@@ -155,8 +161,7 @@ void ReadVecsFromFile(const string& p_corpus, const int& column,
     exit(0);
   }
 
-  /* Read vectors for only words in the train file vocab 
-     Also, exclude singleton words */
+  /* Read vectors for only words in the train file vocab */
   ifstream vec_file(vec_file_name.c_str());
   mapStrUnsigned& vocab = *t_vocab;
   unsigned vocab_size = 0;
@@ -167,7 +172,7 @@ void ReadVecsFromFile(const string& p_corpus, const int& column,
       vector<string> vector_stuff = split_line(line, ' ');
       string word = vector_stuff[0];
       auto it = train_vocab.find(word);
-      if (it != train_vocab.end() && it->second > 1) {
+      if (it != train_vocab.end()) {
         Col word_vec = Col::Zero(vector_stuff.size()-1);
         for (unsigned i = 0; i < word_vec.size(); ++i)
           word_vec(i, 0) = stof(vector_stuff[i+1]);
