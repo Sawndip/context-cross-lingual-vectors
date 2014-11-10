@@ -40,23 +40,35 @@ class Param {
   AT var;
 
   void Init(const int& rows, const int& cols) {
-    var = (0.6 / sqrt (rows * cols)) * AT::Random(rows, cols);
+    var = (0.6 / sqrt (rows + cols)) * AT::Random(rows, cols);
     del_var = T::Zero(rows, cols);
-    del_grad_var = T::Zero(rows, cols);
+    del_grad = T::Zero(rows, cols);
   }
 
   void AdadeltaUpdate(const double& rho, const double& epsilon) {
     for (unsigned i = 0; i < var.rows(); ++i) {
       for (unsigned j = 0; j < var.cols(); ++j) {
         double g = var(i, j).get_gradient();
+        double accum_g = rho * del_grad(i, j) + (1 - rho) * g * g;
+        double del = g * sqrt(del_var(i, j) + epsilon) / sqrt(accum_g + epsilon);
+        /* Update the variable */
+        var(i, j) -= del;
+        /* Update memory */
+        del_grad(i, j) = accum_g;
+        del_var(i, j) = rho * del_var(i, j) + (1 - rho) * del * del;
+      }
+    }
+  }
+
+  void AdagradUpdate(const double& rho, const double& epsilon) {
+    for (unsigned i = 0; i < var.rows(); ++i) {
+      for (unsigned j = 0; j < var.cols(); ++j) {
+        double g = var(i, j).get_gradient();
         if (g) {
-          double accum_g = rho * del_grad_var(i, j) + (1 - rho) * g * g;
-          double del = g * sqrt(del_var(i, j) + epsilon);
-          del /= sqrt(accum_g + epsilon);
-          var(i, j) -= del;  // Update the variable
           /* Update memory */
-          del_grad_var(i, j) = accum_g;
-          del_var(i, j) = rho * del_var(i, j) + (1 - rho) * del * del;
+          del_grad(i, j) += g * g;
+          /* Update variable */
+          var(i, j) -= 0.05 * g / sqrt(del_grad(i, j));
         }
       }
     }
@@ -82,7 +94,7 @@ class Param {
   }
 
  private:
-  T del_var, del_grad_var;  // Adadelta memory
+  T del_var, del_grad;  // Adadelta memory
 };
 
 /* Filter parameters used in the convolution model */
@@ -100,6 +112,11 @@ class Filter {
   void AdadeltaUpdate(const double& rho, const double& epsilon) {
     filter.AdadeltaUpdate(rho, epsilon);
     bias.AdadeltaUpdate(rho, epsilon);
+  }
+
+  void AdagradUpdate(const double& rho, const double& epsilon) {
+    filter.AdagradUpdate(rho, epsilon);
+    bias.AdagradUpdate(rho, epsilon);
   }
 
   void WriteToFile(ofstream& out) {
@@ -150,7 +167,7 @@ class Model {
     tgt_bias.Init(num_tgt_words, 1);
   }
 
-  void Convolve(const Mat& sent_mat, AMat* res) {
+  void GetSentVector(const Mat& sent_mat, ACol* sent_vec) {
     AMat out11, out12, out21, out22, layer1_out;
     /* Layer 1 */
     int k = max(int(sent_mat.cols()/2), kmax);
@@ -161,7 +178,7 @@ class Model {
     ConvolveLayer(layer1_out, f21, kmax, &out21);
     ConvolveLayer(layer1_out, f22, kmax, &out22);
     /* Add the results of the two parallel convolutions */
-    *res = out21 + out22;  
+    *sent_vec = (out21 + out22) * p1.var;
   }
 
   template <typename T>
@@ -193,21 +210,21 @@ class Model {
 
   void Baseline(const Col& src_vec, ACol* pred_vec) {
     ACol temp = Prod(p2.var, src_vec) + p2_b.var;
-    ElemwiseTanh(&temp);
+    ElemwiseSigmoid(&temp);
     *pred_vec = p3.var * temp + p3_b.var;
   }
 
   void UpdateParams() {
-    f11.AdadeltaUpdate(RHO, EPSILON);
-    f12.AdadeltaUpdate(RHO, EPSILON);
-    f21.AdadeltaUpdate(RHO, EPSILON);
-    f22.AdadeltaUpdate(RHO, EPSILON);
-    p1.AdadeltaUpdate(RHO, EPSILON);
-    p2.AdadeltaUpdate(RHO, EPSILON);
-    p2_b.AdadeltaUpdate(RHO, EPSILON);
-    p3.AdadeltaUpdate(RHO, EPSILON);
-    p3_b.AdadeltaUpdate(RHO, EPSILON);
-    tgt_bias.AdadeltaUpdate(RHO, EPSILON);
+    f11.AdagradUpdate(RHO, EPSILON);
+    f12.AdagradUpdate(RHO, EPSILON);
+    f21.AdagradUpdate(RHO, EPSILON);
+    f22.AdagradUpdate(RHO, EPSILON);
+    p1.AdagradUpdate(RHO, EPSILON);
+    p2.AdagradUpdate(RHO, EPSILON);
+    p2_b.AdagradUpdate(RHO, EPSILON);
+    p3.AdagradUpdate(RHO, EPSILON);
+    p3_b.AdagradUpdate(RHO, EPSILON);
+    tgt_bias.AdagradUpdate(RHO, EPSILON);
   }
 
   void WriteParamsToFile(const string& filename) {
@@ -266,7 +283,7 @@ class Model {
 */
 void Train(const string& p_corpus, const string& a_corpus,
            const string& outfilename, const int& num_iter,
-           const int& update_every, const int& filt_len, const int& kmax,
+           const int& noise_size, const int& filt_len, const int& kmax,
            const vector<Col>& src_word_vecs, const vector<Col>& tgt_word_vecs,
            const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab) {
   adept::Stack s;
@@ -274,17 +291,15 @@ void Train(const string& p_corpus, const string& a_corpus,
   vector<double> noise_dist(tgt_vocab.size(), 0.0);
   Model model(filt_len, kmax, src_word_vecs[0].size(), tgt_word_vecs[0].size(),
               src_word_vecs.size(), tgt_word_vecs.size());
-  SetUnigramBias(p_corpus, tgt_vocab, TARGET, &model.tgt_bias.var,
-                 &noise_dist);
+  SetUnigramBias(p_corpus, tgt_vocab, TARGET, &model.tgt_bias.var, &noise_dist);
   sampler.Init(noise_dist);
   for (unsigned i = 0; i < num_iter; ++i) {
     cerr << "\nIteration: " << i+1 << endl;
     ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
     string p_line, a_line;
     vector<int> src_words, tgt_words;
-    unsigned num_words = 0, erroneous_cases = 0;
-    adouble total_error = 0, semi_error = 0, nllh = 0, lnZ = 0;
-    int accum = 0;
+    unsigned num_words = 0;
+    adouble total_error = 0, nllh = 0, lnZ = 0;
     s.new_recording();
     if (p_file.is_open() && a_file.is_open()) {
       while (getline(p_file, p_line) && getline(a_file, a_line)) {
@@ -322,9 +337,8 @@ void Train(const string& p_corpus, const string& a_corpus,
             tgt_words.push_back(-1); // word not in vocab
         }
         /* Get sentence vector by convolution */
-        AMat sent_convolved;
-        model.Convolve(src_sent_mat, &sent_convolved);
-        ACol sent_vec = sent_convolved * model.p1.var;
+        ACol sent_vec;
+        model.GetSentVector(src_sent_mat, &sent_vec);
         /* Read alignments and train */
         vector<string> src_tgt_pairs = split_line(a_line, ' ');
         for (unsigned j = 0; j < src_tgt_pairs.size(); ++j) {
@@ -338,32 +352,28 @@ void Train(const string& p_corpus, const string& a_corpus,
             ACol pred_tgt_vec;
             model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
             adouble error = LossNCE(pred_tgt_vec, tgt_vec, tgt_word,
-                                    tgt_word_vecs, model.tgt_bias.var, 50,
-                                    noise_dist, sampler);
-            auto val = NegLogProb(pred_tgt_vec, tgt_vec, tgt_word,
-                                  tgt_word_vecs, model.tgt_bias.var);
-            nllh += val.first;
-            lnZ += val.second;
+                                    tgt_word_vecs, model.tgt_bias.var,
+                                    noise_size, noise_dist, sampler);
+            //auto val = NegLogProb(pred_tgt_vec, tgt_vec, tgt_word,
+            //                      tgt_word_vecs, model.tgt_bias.var);
+            //nllh += val.first;
+            //lnZ += val.second;
+            //adouble error = val.first;
             total_error += error;
-            semi_error += error;
             //total_error += val.first;
-            //semi_error += val.first;
-            if (++accum == update_every) {
-              semi_error.set_gradient(1.0);
-              s.compute_adjoint();
-              model.UpdateParams();
-              semi_error = 0;
-              accum = 0;
-              s.new_recording();
-            }
+            /* Calcuate gradiet and update parameters */
+            error.set_gradient(1.0);
+            s.compute_adjoint();
+            model.UpdateParams();
+            s.new_recording();
             num_words += 1;
           }
         }
         cerr << num_words << "\r";
       }
-      cerr << "\nError per word: "<< total_error/num_words;// << "\n";
-      cerr << "\nN LLH per word: "<< nllh/num_words;// << "\n";
-      cerr << "\nln(Z) per word: "<< lnZ/num_words;// << "\n";
+      cerr << "\nError per word: "<< total_error/num_words;
+      //cerr << "\nN LLH per word: "<< nllh/num_words;
+      //cerr << "\nln(Z) per word: "<< lnZ/num_words;
       p_file.close();
       a_file.close();
       model.WriteParamsToFile(outfilename + "_i" + to_string(i+1));
@@ -415,10 +425,8 @@ Decode(const string& line, const vector<Col>& word_vecs,
     for (unsigned j = 0; j < clean_words.size(); ++j)
       sent_mat.col(j) = word_vecs[clean_words[j]];
     /* Read the alignment line */
-    AMat sent_convolved;
     ACol sent_vec, pred_vec;
-    model->Convolve(sent_mat, &sent_convolved);
-    sent_vec = sent_convolved * model->p1.var;
+    model->GetSentVector(sent_mat, &sent_vec);
     model->VecInContext(sent_mat.col(new_query_index), sent_vec, &pred_vec);
     return make_pair(true, pred_vec);
 }
@@ -432,7 +440,7 @@ int main(int argc, char **argv){
     string tgt_vec_corpus = argv[4];
     int filt_len = stoi(argv[5]);
     int kmax = stoi(argv[6]);
-    int update_every = stoi(argv[7]);
+    int noise_size = stoi(argv[7]);
     int num_iter = stoi(argv[8]);
     string outfilename = argv[9];
 
@@ -454,7 +462,7 @@ int main(int argc, char **argv){
     cerr << "Output vector length: " << tgt_len << endl;
     cerr << "----------------" << endl;
 
-    Train(parallel_corpus, align_corpus, outfilename, num_iter, update_every,
+    Train(parallel_corpus, align_corpus, outfilename, num_iter, noise_size,
           filt_len, kmax, src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab);
   } else if (argc == 5) {
     adept::Stack s;
@@ -494,10 +502,10 @@ int main(int argc, char **argv){
   } else {
     cerr << "Usage: "<< argv[0] << " parallel_corpus " << " alignment_corpus "
          << " src_vec_corpus " << " tgt_vec_corpus " << " filt_size " << "k_max"
-         << " update_every " << " num_iter " << " outfilename\n";
+         << " noise_size " << " num_iter " << " outfilename\n";
     cerr << "Recommended: " << argv[0] << " parallel_corpus "
          << " alignment_corpus " << " src_vec_corpus " << " tgt_vec_corpus "
-         << " 3 5 10 2" << " out.txt\n\n";
+         << " 3 5 100 2" << " out.txt\n\n";
 
     cerr << "Usage:" << argv[0] << "benchmark word_vecs_file"
          << "context_params_file out_vectors\n";
