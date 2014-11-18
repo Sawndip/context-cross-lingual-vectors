@@ -93,9 +93,8 @@ void GetContext(const vector<unsigned>& words, const vector<string>& words_raw,
   }
 }
 
-void SetUnigramBias(const string& p_file, const mapStrUnsigned& vocab,
-                    const int& column, ACol* res,
-                    vector<double>* dist) {
+void GetUnigramDist(const string& p_file, const mapStrUnsigned& vocab,
+                    const int& column, vector<double>* dist) {
   ifstream infile(p_file.c_str());
   if (infile.is_open()) {
     string line;
@@ -105,19 +104,14 @@ void SetUnigramBias(const string& p_file, const mapStrUnsigned& vocab,
       vector<string> words = split_line(line, ' ');
       for (unsigned j = 0; j < words.size(); ++j) {
         auto it = vocab.find(words[j]);
-        if (it != vocab.end()) {
-          (*res)(it->second) += 1;
+        if (it != vocab.end())
           (*dist)[it->second] += 1;
-        }
       }
     }
     /* Normalize the counts to get unigram distribution */
-    adouble sum = res->sum();
-    double sum_double = accumulate(dist->begin(), dist->end(), 0);
-    for (int i = 0; i < res->rows(); ++i) {
-      (*res)(i) = log( (*res)(i) / sum );
-      (*dist)[i] /= sum_double;
-    }
+    double sum = accumulate(dist->begin(), dist->end(), 0);
+    for (int i = 0; i < dist->size(); ++i)
+      (*dist)[i] /= sum;
   } else {
     cerr <<"\nCould not open file: " << p_file;
     exit(0);

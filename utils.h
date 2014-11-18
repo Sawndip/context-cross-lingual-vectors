@@ -47,7 +47,7 @@ bool ConsiderForContext(const string&);
 bool ConsiderForPred(const string&);
 void GetContext(const vector<unsigned>&, const vector<string>&, unsigned,
                 int, mapIntUnsigned*);
-void SetUnigramBias(const string&, const mapStrUnsigned&, const int&, ACol*,
+void GetUnigramDist(const string&, const mapStrUnsigned&, const int&,
                     vector<double>*);
 
 ARow TopKVals(ARow, int);
