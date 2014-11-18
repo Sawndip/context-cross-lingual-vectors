@@ -27,6 +27,7 @@
 
 #define RHO 0.95
 #define EPSILON 0.000001
+#define RATE 0.05
 
 using namespace std;
 using namespace Eigen;
@@ -60,7 +61,7 @@ class Param {
     }
   }
 
-  void AdagradUpdate(const double& rho, const double& epsilon) {
+  void AdagradUpdate(const double& rate) {
     for (unsigned i = 0; i < var.rows(); ++i) {
       for (unsigned j = 0; j < var.cols(); ++j) {
         double g = var(i, j).get_gradient();
@@ -68,10 +69,26 @@ class Param {
           /* Update memory */
           del_grad(i, j) += g * g;
           /* Update variable */
-          var(i, j) -= 0.05 * g / sqrt(del_grad(i, j));
+          var(i, j) -= rate * g / sqrt(del_grad(i, j));
         }
       }
     }
+  }
+
+  adouble L2() {
+    adouble sum = 0;
+    for (unsigned i = 0; i < var.rows(); ++i)
+      for (unsigned j = 0; j < var.cols(); ++j)
+        sum += var(i, j) * var(i, j);
+    return sum;
+  }
+
+  adouble L1() {
+    adouble sum = 0;
+    for (unsigned i = 0; i < var.rows(); ++i) 
+      for (unsigned j = 0; j < var.cols(); ++j)
+        sum += abs(var(i, j));
+    return sum;
   }
 
   void WriteToFile(ofstream& out) {
@@ -114,9 +131,9 @@ class Filter {
     bias.AdadeltaUpdate(rho, epsilon);
   }
 
-  void AdagradUpdate(const double& rho, const double& epsilon) {
-    filter.AdagradUpdate(rho, epsilon);
-    bias.AdagradUpdate(rho, epsilon);
+  void AdagradUpdate(const double& rate) {
+    filter.AdagradUpdate(rate);
+    bias.AdagradUpdate(rate);
   }
 
   void WriteToFile(ofstream& out) {
@@ -128,6 +145,11 @@ class Filter {
     filter.ReadFromFile(in);
     bias.ReadFromFile(in);
   }
+  
+  /* The biases are not being regularized */
+  adouble L2() { return filter.L2(); }
+
+  adouble L1() { return filter.L1(); }
 };
 
 /* Main class definition that learns the word vectors */
@@ -167,6 +189,8 @@ class Model {
     tgt_bias.Init(num_tgt_words, 1);
   }
 
+  template<typename T> void NonLinearity(T* vec) { ElemwiseHardTanh(vec); }
+
   void GetSentVector(const Mat& sent_mat, ACol* sent_vec) {
     AMat out11, out12, out21, out22, layer1_out;
     /* Layer 1 */
@@ -188,13 +212,13 @@ class Model {
     convolve_wide(mat, filter.filter.var, &convolved);
     Max(convolved, k, res);
     *res += filter.bias.var.rowwise().replicate(res->cols());
-    ElemwiseSigmoid(res);
+    NonLinearity(res);
   }
 
   void VecInContext(const Col& src_vec, const ACol& sent_vec, ACol* pred_vec) {
     /* Pass the src_word_vec through non-linearity */
     ACol src_non_linear_vec = Prod(p2.var, src_vec) + p2_b.var;
-    ElemwiseSigmoid(&src_non_linear_vec);
+    NonLinearity(&src_non_linear_vec);
     /* Add the processed src word vec with context_vec */
     *pred_vec = sent_vec + src_non_linear_vec;
   }
@@ -203,28 +227,50 @@ class Model {
                          ACol* pred_vec) {
     /* Pass the src_word_vec through non-linearity */
     ACol src_non_linear_vec = Prod(p2.var, src_vec) + p2_b.var;
-    ElemwiseSigmoid(&src_non_linear_vec);
+    NonLinearity(&src_non_linear_vec);
     /* Add the processed src word vec with context_vec & convert to tgt_len */
     *pred_vec = p3.var * (sent_vec + src_non_linear_vec) + p3_b.var;
   }
 
   void Baseline(const Col& src_vec, ACol* pred_vec) {
     ACol temp = Prod(p2.var, src_vec) + p2_b.var;
-    ElemwiseSigmoid(&temp);
+    //NonLinearity(&temp);
     *pred_vec = p3.var * temp + p3_b.var;
   }
 
+  adouble L2() {
+    adouble sum = f11.L2() + f12.L2() + f21.L2() + f22.L2();
+    sum += p1.L2() + p2.L2() + p3.L2();
+    return sum;
+  }
+
+  adouble L1() {
+    adouble sum = f11.L1() + f12.L1() + f21.L1() + f22.L1();
+    sum += p1.L1() + p2.L1() + p3.L1();
+    return sum;
+  }
+
   void UpdateParams() {
-    f11.AdagradUpdate(RHO, EPSILON);
-    f12.AdagradUpdate(RHO, EPSILON);
-    f21.AdagradUpdate(RHO, EPSILON);
-    f22.AdagradUpdate(RHO, EPSILON);
-    p1.AdagradUpdate(RHO, EPSILON);
-    p2.AdagradUpdate(RHO, EPSILON);
-    p2_b.AdagradUpdate(RHO, EPSILON);
-    p3.AdagradUpdate(RHO, EPSILON);
-    p3_b.AdagradUpdate(RHO, EPSILON);
-    tgt_bias.AdagradUpdate(RHO, EPSILON);
+    /*f11.AdagradUpdate(RATE);
+    f12.AdagradUpdate(RATE);
+    f21.AdagradUpdate(RATE);
+    f22.AdagradUpdate(RATE);
+    p1.AdagradUpdate(RATE);
+    p2.AdagradUpdate(RATE);
+    p2_b.AdagradUpdate(RATE);
+    p3.AdagradUpdate(RATE);
+    p3_b.AdagradUpdate(RATE);
+    tgt_bias.AdagradUpdate(RATE);*/
+    f11.AdadeltaUpdate(RHO, EPSILON);
+    f12.AdadeltaUpdate(RHO, EPSILON);
+    f21.AdadeltaUpdate(RHO, EPSILON);
+    f22.AdadeltaUpdate(RHO, EPSILON);
+    p1.AdadeltaUpdate(RHO, EPSILON);
+    p2.AdadeltaUpdate(RHO, EPSILON);
+    p2_b.AdadeltaUpdate(RHO, EPSILON);
+    p3.AdadeltaUpdate(RHO, EPSILON);
+    p3_b.AdadeltaUpdate(RHO, EPSILON);
+    tgt_bias.AdadeltaUpdate(RHO, EPSILON);
   }
 
   void WriteParamsToFile(const string& filename) {
@@ -291,7 +337,7 @@ void Train(const string& p_corpus, const string& a_corpus,
   vector<double> noise_dist(tgt_vocab.size(), 0.0);
   Model model(filt_len, kmax, src_word_vecs[0].size(), tgt_word_vecs[0].size(),
               src_word_vecs.size(), tgt_word_vecs.size());
-  SetUnigramBias(p_corpus, tgt_vocab, TARGET, &model.tgt_bias.var, &noise_dist);
+  GetUnigramDist(p_corpus, tgt_vocab, TARGET, &noise_dist);
   sampler.Init(noise_dist);
   for (unsigned i = 0; i < num_iter; ++i) {
     cerr << "\nIteration: " << i+1 << endl;
@@ -331,10 +377,8 @@ void Train(const string& p_corpus, const string& a_corpus,
         /* Target sentence */
         for (unsigned j=0; j<tgt.size(); ++j) {
           auto it = tgt_vocab.find(tgt[j]);
-          if (it != tgt_vocab.end())
-            tgt_words.push_back(it->second);
-          else
-            tgt_words.push_back(-1); // word not in vocab
+          if (it != tgt_vocab.end()) tgt_words.push_back(it->second);
+          else tgt_words.push_back(-1); // word not in vocab
         }
         /* Get sentence vector by convolution */
         ACol sent_vec;
@@ -350,18 +394,17 @@ void Train(const string& p_corpus, const string& a_corpus,
             Col tgt_vec = tgt_word_vecs[tgt_word];
             Col src_vec = src_word_vecs[src_word];
             ACol pred_tgt_vec;
-            model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
-            adouble error = LossNCE(pred_tgt_vec, tgt_vec, tgt_word,
-                                    tgt_word_vecs, model.tgt_bias.var,
-                                    noise_size, noise_dist, sampler);
-            //auto val = NegLogProb(pred_tgt_vec, tgt_vec, tgt_word,
-            //                      tgt_word_vecs, model.tgt_bias.var);
-            //nllh += val.first;
-            //lnZ += val.second;
-            //adouble error = val.first;
+            model.Baseline(src_vec, &pred_tgt_vec);
+            //model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
+            adouble error = NCELoss(pred_tgt_vec, tgt_word, tgt_word_vecs,
+                                    model.tgt_bias.var, noise_size, noise_dist,
+                                    sampler);
+            adouble val = LogProbLoss(pred_tgt_vec, tgt_word,
+                                      tgt_word_vecs, model.tgt_bias.var);
+            //adouble error = val;
             total_error += error;
-            //total_error += val.first;
-            /* Calcuate gradiet and update parameters */
+            nllh += val;
+            /* Calcuate gradient and update parameters */
             error.set_gradient(1.0);
             s.compute_adjoint();
             model.UpdateParams();
@@ -369,11 +412,10 @@ void Train(const string& p_corpus, const string& a_corpus,
             num_words += 1;
           }
         }
-        cerr << num_words << "\r";
+        //cerr << num_words << "\r";
       }
       cerr << "\nError per word: "<< total_error/num_words;
-      //cerr << "\nN LLH per word: "<< nllh/num_words;
-      //cerr << "\nln(Z) per word: "<< lnZ/num_words;
+      cerr << "\nN LLH per word: "<< nllh/num_words;
       p_file.close();
       a_file.close();
       model.WriteParamsToFile(outfilename + "_i" + to_string(i+1));
@@ -464,7 +506,7 @@ int main(int argc, char **argv){
 
     Train(parallel_corpus, align_corpus, outfilename, num_iter, noise_size,
           filt_len, kmax, src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab);
-  } else if (argc == 5) {
+  } else if (argc == 6) {
     adept::Stack s;
     string parallel_corpus = argv[1];
     string sent_file = argv[2];
@@ -507,7 +549,7 @@ int main(int argc, char **argv){
          << " alignment_corpus " << " src_vec_corpus " << " tgt_vec_corpus "
          << " 3 5 100 2" << " out.txt\n\n";
 
-    cerr << "Usage:" << argv[0] << "benchmark word_vecs_file"
+    cerr << "Usage: " << argv[0] << "parallel_corpus sent_file word_vecs_file "
          << "context_params_file out_vectors\n";
   }
 
