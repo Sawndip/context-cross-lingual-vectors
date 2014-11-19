@@ -331,7 +331,8 @@ void Train(const string& p_corpus, const string& a_corpus,
            const string& outfilename, const int& num_iter,
            const int& noise_size, const int& filt_len, const int& kmax,
            const vector<Col>& src_word_vecs, const vector<Col>& tgt_word_vecs,
-           const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab) {
+           const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab,
+           const unsigned& use_nce) {
   adept::Stack s;
   AliasSampler sampler;
   vector<double> noise_dist(tgt_vocab.size(), 0.0);
@@ -396,12 +397,16 @@ void Train(const string& p_corpus, const string& a_corpus,
             ACol pred_tgt_vec;
             model.Baseline(src_vec, &pred_tgt_vec);
             //model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
-            adouble error = NCELoss(pred_tgt_vec, tgt_word, tgt_word_vecs,
-                                    model.tgt_bias.var, noise_size, noise_dist,
-                                    sampler);
             adouble val = LogProbLoss(pred_tgt_vec, tgt_word,
                                       tgt_word_vecs, model.tgt_bias.var);
-            //adouble error = val;
+            adouble error;
+            if (use_nce == 1) {
+              error = NCELoss(pred_tgt_vec, tgt_word, tgt_word_vecs,
+                              model.tgt_bias.var, noise_size, noise_dist,
+                              sampler);
+            } else {
+              error = val;
+            }
             total_error += error;
             nllh += val;
             /* Calcuate gradient and update parameters */
@@ -475,7 +480,7 @@ Decode(const string& line, const vector<Col>& word_vecs,
 
 
 int main(int argc, char **argv){
-  if (argc == 10) {
+  if (argc == 11) {
     string parallel_corpus = argv[1];
     string align_corpus = argv[2];
     string src_vec_corpus = argv[3];
@@ -485,6 +490,7 @@ int main(int argc, char **argv){
     int noise_size = stoi(argv[7]);
     int num_iter = stoi(argv[8]);
     string outfilename = argv[9];
+    unsigned use_nce = stoi(argv[10]);
 
     mapStrUnsigned src_vocab, tgt_vocab;
     vector<Col> src_word_vecs, tgt_word_vecs;
@@ -505,7 +511,8 @@ int main(int argc, char **argv){
     cerr << "----------------" << endl;
 
     Train(parallel_corpus, align_corpus, outfilename, num_iter, noise_size,
-          filt_len, kmax, src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab);
+          filt_len, kmax, src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab,
+          use_nce);
   } else if (argc == 6) {
     adept::Stack s;
     string parallel_corpus = argv[1];
@@ -542,15 +549,16 @@ int main(int argc, char **argv){
       cerr << "Could not open file " << infile << endl;
     }
   } else {
+    cerr << endl;
     cerr << "Usage: "<< argv[0] << " parallel_corpus " << " alignment_corpus "
          << " src_vec_corpus " << " tgt_vec_corpus " << " filt_size " << "k_max"
-         << " noise_size " << " num_iter " << " outfilename\n";
+         << " noise_size " << " num_iter " << " outfilename use_nce\n";
     cerr << "Recommended: " << argv[0] << " parallel_corpus "
          << " alignment_corpus " << " src_vec_corpus " << " tgt_vec_corpus "
-         << " 3 5 100 2" << " out.txt\n\n";
+         << " 3 5 100 10" << " out.txt 1\n\n";
 
-    cerr << "Usage: " << argv[0] << "parallel_corpus sent_file word_vecs_file "
-         << "context_params_file out_vectors\n";
+    //cerr << "Usage: " << argv[0] << "parallel_corpus sent_file word_vecs_file "
+    //     << "context_params_file out_vectors\n";
   }
 
   return 1;

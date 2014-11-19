@@ -15,7 +15,7 @@ NegSamplingLoss(const ACol&, const unsigned&, const vector<Col>&,
 adouble ISLoss(const ACol&, const unsigned&, const vector<Col>&,
                 const ACol&, const int&, vector<double>&, AliasSampler&);
 adouble NCELoss(const ACol&, const unsigned&, const vector<Col>&,
-                const ACol&, const int&, vector<double>&, AliasSampler&);
+                const ACol&, const int&, const vector<double>&, AliasSampler&);
 adouble LogProbLoss(const ACol&, const unsigned&, const vector<Col>&,
                     const ACol&);
 #endif
