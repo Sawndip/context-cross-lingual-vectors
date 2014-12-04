@@ -234,7 +234,7 @@ class Model {
 
   void Baseline(const Col& src_vec, ACol* pred_vec) {
     ACol temp = Prod(p2.var, src_vec) + p2_b.var;
-    //NonLinearity(&temp);
+    NonLinearity(&temp);
     *pred_vec = p3.var * temp + p3_b.var;
   }
 
@@ -251,7 +251,7 @@ class Model {
   }
 
   void UpdateParams() {
-    /*f11.AdagradUpdate(RATE);
+    f11.AdagradUpdate(RATE);
     f12.AdagradUpdate(RATE);
     f21.AdagradUpdate(RATE);
     f22.AdagradUpdate(RATE);
@@ -260,17 +260,7 @@ class Model {
     p2_b.AdagradUpdate(RATE);
     p3.AdagradUpdate(RATE);
     p3_b.AdagradUpdate(RATE);
-    tgt_bias.AdagradUpdate(RATE);*/
-    f11.AdadeltaUpdate(RHO, EPSILON);
-    f12.AdadeltaUpdate(RHO, EPSILON);
-    f21.AdadeltaUpdate(RHO, EPSILON);
-    f22.AdadeltaUpdate(RHO, EPSILON);
-    p1.AdadeltaUpdate(RHO, EPSILON);
-    p2.AdadeltaUpdate(RHO, EPSILON);
-    p2_b.AdadeltaUpdate(RHO, EPSILON);
-    p3.AdadeltaUpdate(RHO, EPSILON);
-    p3_b.AdadeltaUpdate(RHO, EPSILON);
-    tgt_bias.AdadeltaUpdate(RHO, EPSILON);
+    tgt_bias.AdagradUpdate(RATE);
   }
 
   void WriteParamsToFile(const string& filename) {
@@ -331,8 +321,7 @@ void Train(const string& p_corpus, const string& a_corpus,
            const string& outfilename, const int& num_iter,
            const int& noise_size, const int& filt_len, const int& kmax,
            const vector<Col>& src_word_vecs, const vector<Col>& tgt_word_vecs,
-           const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab,
-           const unsigned& use_nce) {
+           const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab) {
   adept::Stack s;
   AliasSampler sampler;
   vector<double> noise_dist(tgt_vocab.size(), 0.0);
@@ -388,27 +377,21 @@ void Train(const string& p_corpus, const string& a_corpus,
         vector<string> src_tgt_pairs = split_line(a_line, ' ');
         for (unsigned j = 0; j < src_tgt_pairs.size(); ++j) {
           vector<string> index_pair = split_line(src_tgt_pairs[j], '-');
-          unsigned src_ix = stoi(index_pair[0]), tgt_ix = stoi(index_pair[1]);
-          unsigned tgt_word = tgt_words[tgt_ix], src_word = src_words[src_ix];
+          int src_ix = stoi(index_pair[0]), tgt_ix = stoi(index_pair[1]);
+          int tgt_word = tgt_words[tgt_ix], src_word = src_words[src_ix];
           /* If both words are in the cleaned sentences, train on this */
           if (tgt_word != -1 && src_word != -1) {
             Col tgt_vec = tgt_word_vecs[tgt_word];
             Col src_vec = src_word_vecs[src_word];
             ACol pred_tgt_vec;
-            model.Baseline(src_vec, &pred_tgt_vec);
-            //model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
-            adouble val = LogProbLoss(pred_tgt_vec, tgt_word,
-                                      tgt_word_vecs, model.tgt_bias.var);
-            adouble error;
-            if (use_nce == 1) {
-              error = NCELoss(pred_tgt_vec, tgt_word, tgt_word_vecs,
-                              model.tgt_bias.var, noise_size, noise_dist,
-                              sampler);
-            } else {
-              error = val;
-            }
+            model.TransVecInContext(src_vec, sent_vec, &pred_tgt_vec);
+            //adouble val = LogProbLoss(pred_tgt_vec, tgt_word,
+            //                          tgt_word_vecs, model.tgt_bias.var);
+            //nllh += val;
+            adouble error = NCELoss(pred_tgt_vec, tgt_word,
+                                    tgt_word_vecs, model.tgt_bias.var,
+                                    noise_size, noise_dist, sampler);
             total_error += error;
-            nllh += val;
             /* Calcuate gradient and update parameters */
             error.set_gradient(1.0);
             s.compute_adjoint();
@@ -417,12 +400,11 @@ void Train(const string& p_corpus, const string& a_corpus,
             num_words += 1;
           }
         }
-        //cerr << num_words << "\r";
+        cerr << num_words << "\r";
       }
-      cerr << "\nError per word: "<< total_error/num_words;
-      cerr << "\nN LLH per word: "<< nllh/num_words;
       p_file.close();
       a_file.close();
+      cerr << "\nError per example: " << total_error / num_words;
       model.WriteParamsToFile(outfilename + "_i" + to_string(i+1));
     } else {
       cerr << "\nUnable to open file\n";
@@ -480,7 +462,7 @@ Decode(const string& line, const vector<Col>& word_vecs,
 
 
 int main(int argc, char **argv){
-  if (argc == 11) {
+  if (argc == 10) {
     string parallel_corpus = argv[1];
     string align_corpus = argv[2];
     string src_vec_corpus = argv[3];
@@ -490,7 +472,6 @@ int main(int argc, char **argv){
     int noise_size = stoi(argv[7]);
     int num_iter = stoi(argv[8]);
     string outfilename = argv[9];
-    unsigned use_nce = stoi(argv[10]);
 
     mapStrUnsigned src_vocab, tgt_vocab;
     vector<Col> src_word_vecs, tgt_word_vecs;
@@ -511,8 +492,7 @@ int main(int argc, char **argv){
     cerr << "----------------" << endl;
 
     Train(parallel_corpus, align_corpus, outfilename, num_iter, noise_size,
-          filt_len, kmax, src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab,
-          use_nce);
+          filt_len, kmax, src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab);
   } else if (argc == 6) {
     adept::Stack s;
     string parallel_corpus = argv[1];
@@ -556,9 +536,6 @@ int main(int argc, char **argv){
     cerr << "Recommended: " << argv[0] << " parallel_corpus "
          << " alignment_corpus " << " src_vec_corpus " << " tgt_vec_corpus "
          << " 3 5 100 10" << " out.txt 1\n\n";
-
-    //cerr << "Usage: " << argv[0] << "parallel_corpus sent_file word_vecs_file "
-    //     << "context_params_file out_vectors\n";
   }
 
   return 1;
