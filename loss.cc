@@ -25,20 +25,17 @@ adouble NegSamplingLoss(const ACol& hidden, const unsigned& tgt_word,
                         const vector<Col>& tgt_vecs,
                         const ACol& tgt_bias, const int& k,
                         vector<double>& noise_dist, AliasSampler& sampler) {
-  double p_real = 1.0 / (1 + k), p_noise = k / (1.0 + k);
   adouble lp = 0.0;
-  {
-    adouble score = DotProdCol(hidden, tgt_vecs[tgt_word]) +
-                    tgt_bias[tgt_word];
-    adouble real_given_w = exp(score) / (1 + exp(score));
-    lp += log(real_given_w);
-  }
+  adouble score = DotProdCol(hidden, tgt_vecs[tgt_word]) +
+                  tgt_bias[tgt_word];
+  adouble real_given_w = exp(score) / (1 + exp(score));
+  lp += log(real_given_w);
+
   for (int i = 0; i < k; ++i) {
-    unsigned rand_word = sampler.Draw();
-    adouble score = DotProdCol(hidden, tgt_vecs[rand_word]) +
-                    tgt_bias[rand_word];
+    unsigned r_word = sampler.Draw();
+    adouble score = DotProdCol(hidden, tgt_vecs[r_word]) + tgt_bias[r_word];
     adouble noise_given_w = 1.0 / (1 + exp(score));
-    lp += k * noise_dist[rand_word] * log(noise_given_w);
+    lp += k * noise_dist[r_word] * log(noise_given_w);
   }
   return -1.0 * lp;
 }
@@ -76,7 +73,7 @@ adouble NCELoss(const ACol& hidden, const unsigned& tgt_word,
 
 adouble LogProbLoss(const ACol& hidden, const unsigned& tgt_word,
                     const vector<Col>& tgt_vecs, const ACol& tgt_bias) {
-  adouble denom = 0.0;
+  adouble denom = -999999999999;
   adouble score = DotProdCol(hidden, tgt_vecs[tgt_word]) + tgt_bias[tgt_word];
   /* Sum over the vocab here */
   for (int i = 0; i < tgt_vecs.size(); ++i)
