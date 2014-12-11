@@ -1,5 +1,17 @@
 #include "utils.h"
 
+void ScalarProd(const adouble& scalar, const Col& vec, ACol* res) {
+  *res = ACol::Zero(vec.rows(), 1);
+  for(int i = 0; i < vec.rows(); ++i)
+    (*res)(i, 0) = scalar * vec(i, 0);
+}
+
+void Sum(const ACol& a, const Col& b, ACol* res) {
+  *res = ACol::Zero(a.rows(), 1);
+  for(int i = 0; i < b.rows(); ++i)
+    (*res)(i, 0) = a(i, 0) + b(i, 0);
+}
+
 adouble DotProdRow(const ARow& a, const Row& b) {
   adouble sum = 0;
   for (unsigned i = 0; i < a.cols(); ++i)
@@ -25,9 +37,9 @@ void convolve_narrow(const Mat& mat, const AMat& filter, AMat* res) {
   unsigned slice_len = filter.cols();
   (*res) = AMat::Zero(mat.rows(), mat.cols() - slice_len + 1);
   for (unsigned i = 0; i < res->rows(); ++i) {
-    for (unsigned j = 0; j < res->cols(); ++j) {
-      (*res)(i, j) = DotProdRow(filter.row(i), mat.block(i, j, 1, slice_len));
-    }
+    ARow r = filter.row(i);
+    for (unsigned j = 0; j < res->cols(); ++j)
+      (*res)(i, j) = DotProdRow(r, mat.block(i, j, 1, slice_len));
   }
 }
 
@@ -142,7 +154,9 @@ adouble CosineSim(const ACol& ac, const Col& c) {
   return DotProdCol(ac, c)/sqrt(ac.squaredNorm() * c.squaredNorm());
 }
 
-
+double CosineSim(const Col& ci, const Col& cj) {
+  return ci.dot(cj)/sqrt(ci.squaredNorm() * cj.squaredNorm());
+}
 
 ACol Prod(const AMat& mat, const Col& c) {
   ACol res = ACol::Zero(mat.rows());

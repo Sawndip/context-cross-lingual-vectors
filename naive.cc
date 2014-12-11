@@ -146,22 +146,26 @@ class Model {
 
  public:
   /* The parameters of the model */
-  Param<AMat, Mat> to_hidden, to_tgt;
-  Param<ACol, Col> hidden_bias, tgt_vec_bias;
+  Param<AMat, Mat> to_hidden, to_tgt, left, right;
+  Param<ACol, Col> hidden_bias, tgt_vec_bias, bigram_bias;
   Param<ACol, Col> context_weights, tgt_word_bias;
-  int src_len, tgt_len;
+  int src_len, tgt_len, context_len;
   
   Model() {}
       
-  Model(const int& context_len, const int& hidden_len, const int& src_vec_len,
+  Model(const int& context_size, const int& hidden_len, const int& src_vec_len,
         const int& tgt_vec_len, const int& tgt_vocab_len) {
     src_len = src_vec_len;
     tgt_len = tgt_vec_len;
+    context_len = context_size;
     /* Neural network params initialization */
     to_hidden.Init(hidden_len, 2 * src_len);
     hidden_bias.Init(hidden_len, 1);
     to_tgt.Init(tgt_len, hidden_len);
     tgt_vec_bias.Init(tgt_len, 1);
+    left.Init(src_len, src_len);
+    right.Init(src_len, src_len);
+    bigram_bias.Init(src_len, 1);
     /* Language model bias */
     tgt_word_bias.Init(tgt_vocab_len, 1);
     /* Linear addition params initialization */
@@ -173,7 +177,7 @@ class Model {
   void 
   TransVecInContext(const unsigned& src_word, const vector<int>& context,
                     const vector<Col>& src_vecs, ACol* pred_vec) {
-    /* Add the context linearly */
+    /* Add the context linearly
     ACol linear_sum = ACol::Zero(src_len, 1);
     for (unsigned i = 0; i < context.size(); ++i) {
       ACol temp;
@@ -183,7 +187,25 @@ class Model {
     ACol appended(2 * src_len, 1), temp;
     adouble unit = 1;
     ScalarProd(unit, src_vecs[src_word], &temp);
-    appended << linear_sum, temp;
+    appended << linear_sum, temp; */
+
+    /* Add bigram and then non-linearity */
+    ACol bigram_sum = ACol::Zero(src_len, 1);
+    for (unsigned i = 0; i < context.size() - 1; ++i) {
+      ACol temp_left, temp_right, temp_non_linear;
+      adouble unit = 1;
+      ScalarProd(unit, src_vecs[context[i]], &temp_left);
+      ScalarProd(unit, src_vecs[context[i+1]], &temp_right);
+      temp_non_linear = left.var * temp_left + right.var * temp_right;
+      temp_non_linear += bigram_bias.var;
+      NonLinearity(&temp_non_linear);
+      bigram_sum += temp_non_linear;
+    }
+    bigram_sum /= (context.size() - 1);
+    ACol appended(2 * src_len, 1), temp;
+    adouble unit = 1;
+    ScalarProd(unit, src_vecs[src_word], &temp);
+    appended << bigram_sum, temp;
     /* Get the hidden layer */
     ACol hidden = to_hidden.var * appended + hidden_bias.var;
     NonLinearity(&hidden);
@@ -191,10 +213,14 @@ class Model {
   }
 
   adouble L2() {
-    return to_hidden.L2() + to_tgt.L2() + context_weights.L2();
+    return to_hidden.L2() + to_tgt.L2() + context_weights.L2() + 
+           left.L2() + right.L2();
   }
 
   void UpdateParams() {
+    left.AdagradUpdate(RATE);
+    right.AdagradUpdate(RATE);
+    bigram_bias.AdagradUpdate(RATE);
     to_hidden.AdagradUpdate(RATE);
     to_tgt.AdagradUpdate(RATE);
     hidden_bias.AdagradUpdate(RATE);
@@ -237,6 +263,69 @@ class Model {
   }
 };
 
+void
+EvalDev(const string& p_corpus, const string& a_corpus,
+        const vector<Col>& src_word_vecs, const vector<Col>& tgt_word_vecs,
+        const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab,
+        Model& model, adept::Stack& s) {
+  ifstream p_file(p_corpus.c_str()), a_file(a_corpus.c_str());
+  string p_line, a_line;
+  vector<int> src_words, tgt_words;
+  unsigned num_words = 0;
+  adouble nllh = 0;
+  if (p_file.is_open() && a_file.is_open()) {
+    while (getline(p_file, p_line) && getline(a_file, a_line)) {
+      s.new_recording();
+      /* Extracting words from sentences */
+      vector<string> src_tgt = split_line(p_line, '\t');
+      vector<string> src = split_line(src_tgt[0], ' ');
+      vector<string> tgt = split_line(src_tgt[1], ' ');
+      src_words.clear();
+      tgt_words.clear();
+      /* Read and Clean Source sentence */
+      for (unsigned j = 0; j < src.size(); ++j) {
+        auto it = src_vocab.find(src[j]);
+        if (it != src_vocab.end()) src_words.push_back(it->second);
+        else src_words.push_back(-1); // word not in vocab
+      }
+      /* Target sentence */
+      for (unsigned j=0; j<tgt.size(); ++j) {
+        auto it = tgt_vocab.find(tgt[j]);
+        if (it != tgt_vocab.end()) tgt_words.push_back(it->second);
+        else tgt_words.push_back(-1); // word not in vocab
+      }
+      /* Read alignments and train */
+      vector<string> src_tgt_pairs = split_line(a_line, ' ');
+      for (unsigned j = 0; j < src_tgt_pairs.size(); ++j) {
+        vector<string> index_pair = split_line(src_tgt_pairs[j], '-');
+        int src_ix = stoi(index_pair[0]), tgt_ix = stoi(index_pair[1]);
+        int tgt_word = tgt_words[tgt_ix], src_word = src_words[src_ix];
+        /* If both words are in the cleaned sentences, train on this */
+        if (tgt_word != -1 && src_word != -1) {
+          Col tgt_vec = tgt_word_vecs[tgt_word];
+          /* Get context */
+          vector<int> context;
+          GetContext(src_words, src, src_ix, model.context_len, &context);
+          ACol pred_tgt_vec;
+          model.TransVecInContext(src_word, context, src_word_vecs,
+                                  &pred_tgt_vec);
+          adouble nlp = LogProbLoss(pred_tgt_vec, tgt_word,
+                                    tgt_word_vecs, model.tgt_word_bias.var);
+          nllh += nlp;
+          num_words += 1;
+        }
+      }
+    cerr << num_words << "\r";
+    }
+    p_file.close();
+    a_file.close();
+    cerr << "\nPerplexity: " << exp(nllh / num_words);
+  } else {
+    cerr << "\nUnable to open file\n";
+  }
+}
+
+
 /*
    The function that trains a neural network to convert word vectors
    from source language to target language while taking the context of
@@ -245,17 +334,18 @@ class Model {
 
    The parameters are self-explanatory.
 */
-void 
-Train(const string& p_corpus, const string& a_corpus,
-      const string& outfilename, const int& window, const int& hidden_len,
-      const int& num_iter, const int& noise_size,
-      const vector<Col>& src_word_vecs, const vector<Col>& tgt_word_vecs,
-      const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab) {
+void Train(const string& p_corpus, const string& a_corpus,
+           const string& p_dev, const string& a_dev,
+           const string& outfilename, const int& hidden_len,
+           const int& context_len, const int& noise_size,
+           const int& num_iter, const double& reg_const,
+           const vector<Col>& src_word_vecs, const vector<Col>& tgt_word_vecs,
+           const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab) {  
   adept::Stack s;
   AliasSampler sampler;
   vector<double> noise_dist(tgt_vocab.size(), 0.0);
-  Model model(window, hidden_len, src_word_vecs[0].size(), tgt_word_vecs[0].size(),
-              tgt_word_vecs.size());
+  Model model(context_len, hidden_len, src_word_vecs[0].size(),
+              tgt_word_vecs[0].size(), tgt_word_vecs.size());
   GetUnigramDist(p_corpus, tgt_vocab, TARGET, &noise_dist);
   sampler.Init(noise_dist);
   for (unsigned i = 0; i < num_iter; ++i) {
@@ -297,16 +387,14 @@ Train(const string& p_corpus, const string& a_corpus,
             Col tgt_vec = tgt_word_vecs[tgt_word];
             /* Get context */
             vector<int> context;
-            GetContext(src_words, src, src_ix, window, &context);
+            GetContext(src_words, src, src_ix, context_len, &context);
             ACol pred_tgt_vec;
             model.TransVecInContext(src_word, context, src_word_vecs,
                                     &pred_tgt_vec);
-            //adouble nlp = LogProbLoss(pred_tgt_vec, tgt_word,
-            //                          tgt_word_vecs, model.tgt_word_bias.var);
-            //nllh += nlp;
             adouble error = NCELoss(pred_tgt_vec, tgt_word,
                                     tgt_word_vecs, model.tgt_word_bias.var,
                                     noise_size, noise_dist, sampler);
+            error += reg_const * model.L2();
             total_error += error;
             /* Calcuate gradient and update parameters */
             error.set_gradient(1.0);
@@ -321,7 +409,9 @@ Train(const string& p_corpus, const string& a_corpus,
       p_file.close();
       a_file.close();
       cerr << "\nError: " << total_error / num_words;
-      //cerr << "\nPerplexity: " << exp(nllh / num_words);
+      cerr << "\nL2: " << model.L2() << endl;
+      EvalDev(p_dev, a_dev, src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab,
+              model, s);
       model.WriteParamsToFile(outfilename + "_i" + to_string(i+1));
     } else {
       cerr << "\nUnable to open file\n";
@@ -378,16 +468,19 @@ Decode(const string& line, const vector<Col>& word_vecs,
 } */
 
 int main(int argc, char **argv){
-  if (argc == 10) {
+  if (argc == 13) {
     string parallel_corpus = argv[1];
     string align_corpus = argv[2];
-    string src_vec_corpus = argv[3];
-    string tgt_vec_corpus = argv[4];
-    int context_len = stoi(argv[5]);
-    int hidden_len = stoi(argv[6]);
-    int noise_size = stoi(argv[7]);
-    int num_iter = stoi(argv[8]);
-    string outfilename = argv[9];
+    string p_dev = argv[3];
+    string a_dev = argv[4];
+    string src_vec_corpus = argv[5];
+    string tgt_vec_corpus = argv[6];
+    int context_len = stoi(argv[7]);
+    int hidden_len = stoi(argv[8]);
+    int noise_size = stoi(argv[9]);
+    int num_iter = stoi(argv[10]);
+    double reg_const = stod(argv[11]);
+    string outfilename = argv[12];
 
     mapStrUnsigned src_vocab, tgt_vocab;
     vector<Col> src_word_vecs, tgt_word_vecs;
@@ -397,20 +490,19 @@ int main(int argc, char **argv){
                      &tgt_word_vecs);
     int src_len = src_word_vecs[0].size();
     int tgt_len = tgt_word_vecs[0].size();
- 
+
     cerr << "Model specification" << endl;
     cerr << "----------------" << endl;
     cerr << "Input vector length: " << src_len << endl;
-    cerr << "Context size: " << context_len << endl;
-    cerr << "Hidden layer length: " << hidden_len << endl;
+    cerr << "Context length: " << context_len << endl;
+    cerr << "Hidden length: " << hidden_len << endl;
+    cerr << "Reg const: " << reg_const << endl;
     cerr << "Output vector length: " << tgt_len << endl;
-    cerr << "Noise samples: " << noise_size << endl;
-    cerr << "Num iterations: " << num_iter << endl;
     cerr << "----------------" << endl;
 
-    Train(parallel_corpus, align_corpus, outfilename, context_len, hidden_len,
-          num_iter, noise_size, src_word_vecs, tgt_word_vecs, src_vocab,
-          tgt_vocab);
+    Train(parallel_corpus, align_corpus, p_dev, a_dev, outfilename,
+          context_len, hidden_len, noise_size, num_iter, reg_const,
+          src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab);
   } else if (argc == 6) {
     /*
     adept::Stack s;
