@@ -173,11 +173,42 @@ class Model {
   }
 
   template<typename T> void NonLinearity(T* vec) { ElemwiseHardTanh(vec); }
+  
+  void GetSentVector(const vector<int>& words, const vector<Col>& src_vecs,
+                     ACol* pred_vec) {
+    Col left_vec = Col::Zero(src_len), right_vec = Col::Zero(src_len);
+    for (unsigned i = 0; i < words.size(); ++i) {
+      if (words[i] != -1) {
+        if (i < words.size() - 1) left_vec += src_vecs[words[i]];
+        if (i > 0) right_vec += src_vecs[words[i]];
+      }
+    }
+    ACol temp_left, temp_right, temp_non_linear;
+    adouble unit = 1;
+    ScalarProd(unit, left_vec, &temp_left);
+    ScalarProd(unit, right_vec, &temp_right);
+    *pred_vec = left.var * temp_left + right.var * temp_right;
+    *pred_vec += bigram_bias.var;
+    NonLinearity(pred_vec);
+    *pred_vec /= words.size();
+  }
 
-  void 
-  TransVecInContext(const unsigned& src_word, const vector<int>& context,
+  void TransVecInContext(const Col& src_vec, const ACol& sent_vec,
+                         ACol* pred_vec) {
+    ACol appended(2 * src_len), temp;
+    adouble unit = 1;
+    ScalarProd(unit, src_vec, &temp);
+    appended << sent_vec, temp;
+    /* Get the hidden layer */
+    ACol hidden = to_hidden.var * appended + hidden_bias.var;
+    NonLinearity(&hidden);
+    *pred_vec = to_tgt.var * hidden + tgt_vec_bias.var;
+  }
+
+  void
+  TransVecInContextOld(const unsigned& src_word, const vector<int>& context,
                     const vector<Col>& src_vecs, ACol* pred_vec) {
-    /* Add the context linearly
+    // Add the context linearly
     ACol linear_sum = ACol::Zero(src_len, 1);
     for (unsigned i = 0; i < context.size(); ++i) {
       ACol temp;
@@ -187,25 +218,7 @@ class Model {
     ACol appended(2 * src_len, 1), temp;
     adouble unit = 1;
     ScalarProd(unit, src_vecs[src_word], &temp);
-    appended << linear_sum, temp; */
-
-    /* Add bigram and then non-linearity */
-    ACol bigram_sum = ACol::Zero(src_len, 1);
-    for (unsigned i = 0; i < context.size() - 1; ++i) {
-      ACol temp_left, temp_right, temp_non_linear;
-      adouble unit = 1;
-      ScalarProd(unit, src_vecs[context[i]], &temp_left);
-      ScalarProd(unit, src_vecs[context[i+1]], &temp_right);
-      temp_non_linear = left.var * temp_left + right.var * temp_right;
-      temp_non_linear += bigram_bias.var;
-      NonLinearity(&temp_non_linear);
-      bigram_sum += temp_non_linear;
-    }
-    bigram_sum /= (context.size() - 1);
-    ACol appended(2 * src_len, 1), temp;
-    adouble unit = 1;
-    ScalarProd(unit, src_vecs[src_word], &temp);
-    appended << bigram_sum, temp;
+    appended << linear_sum, temp;
     /* Get the hidden layer */
     ACol hidden = to_hidden.var * appended + hidden_bias.var;
     NonLinearity(&hidden);
@@ -225,7 +238,7 @@ class Model {
     to_tgt.AdagradUpdate(RATE);
     hidden_bias.AdagradUpdate(RATE);
     tgt_vec_bias.AdagradUpdate(RATE);
-    context_weights.AdagradUpdate(RATE);
+    //context_weights.AdagradUpdate(RATE);
     tgt_word_bias.AdagradUpdate(RATE);
   }
 
@@ -237,7 +250,7 @@ class Model {
       hidden_bias.WriteToFile(outfile);
       to_tgt.WriteToFile(outfile);
       tgt_vec_bias.WriteToFile(outfile);
-      context_weights.WriteToFile(outfile);
+      //context_weights.WriteToFile(outfile);
       tgt_word_bias.WriteToFile(outfile);
       outfile.close();
       cerr << "\nWritten parameters to: " << filename;
@@ -253,7 +266,7 @@ class Model {
       hidden_bias.ReadFromFile(infile);
       to_tgt.ReadFromFile(infile);
       tgt_vec_bias.ReadFromFile(infile);
-      context_weights.ReadFromFile(infile);
+      //context_weights.ReadFromFile(infile);
       tgt_word_bias.ReadFromFile(infile);
       infile.close();
       cerr << "\nRead parameters from: " << filename;
@@ -294,6 +307,8 @@ EvalDev(const string& p_corpus, const string& a_corpus,
         if (it != tgt_vocab.end()) tgt_words.push_back(it->second);
         else tgt_words.push_back(-1); // word not in vocab
       }
+      ACol sent_vec;
+      model.GetSentVector(src_words, src_word_vecs, &sent_vec);
       /* Read alignments and train */
       vector<string> src_tgt_pairs = split_line(a_line, ' ');
       for (unsigned j = 0; j < src_tgt_pairs.size(); ++j) {
@@ -304,11 +319,13 @@ EvalDev(const string& p_corpus, const string& a_corpus,
         if (tgt_word != -1 && src_word != -1) {
           Col tgt_vec = tgt_word_vecs[tgt_word];
           /* Get context */
-          vector<int> context;
-          GetContext(src_words, src, src_ix, model.context_len, &context);
+          //vector<int> context;
+          //GetContext(src_words, src, src_ix, model.context_len, &context);
           ACol pred_tgt_vec;
-          model.TransVecInContext(src_word, context, src_word_vecs,
+          model.TransVecInContext(src_word_vecs[src_word], sent_vec,
                                   &pred_tgt_vec);
+          //model.TransVecInContext(src_word, context, src_word_vecs,
+          //                        &pred_tgt_vec);
           adouble nlp = LogProbLoss(pred_tgt_vec, tgt_word,
                                     tgt_word_vecs, model.tgt_word_bias.var);
           nllh += nlp;
@@ -336,12 +353,12 @@ EvalDev(const string& p_corpus, const string& a_corpus,
 */
 void Train(const string& p_corpus, const string& a_corpus,
            const string& p_dev, const string& a_dev,
-           const string& outfilename, const int& hidden_len,
-           const int& context_len, const int& noise_size,
+           const string& outfilename, const int& context_len,
+           const int& hidden_len, const int& noise_size,
            const int& num_iter, const double& reg_const,
            const vector<Col>& src_word_vecs, const vector<Col>& tgt_word_vecs,
-           const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab) {  
-  adept::Stack s;
+           const mapStrUnsigned& src_vocab, const mapStrUnsigned& tgt_vocab,
+           adept::Stack& s) {  
   AliasSampler sampler;
   vector<double> noise_dist(tgt_vocab.size(), 0.0);
   Model model(context_len, hidden_len, src_word_vecs[0].size(),
@@ -376,6 +393,8 @@ void Train(const string& p_corpus, const string& a_corpus,
           if (it != tgt_vocab.end()) tgt_words.push_back(it->second);
           else tgt_words.push_back(-1); // word not in vocab
         }
+        ACol sent_vec;
+        model.GetSentVector(src_words, src_word_vecs, &sent_vec);
         /* Read alignments and train */
         vector<string> src_tgt_pairs = split_line(a_line, ' ');
         for (unsigned j = 0; j < src_tgt_pairs.size(); ++j) {
@@ -385,11 +404,14 @@ void Train(const string& p_corpus, const string& a_corpus,
           /* If both words are in the cleaned sentences, train on this */
           if (tgt_word != -1 && src_word != -1) {
             Col tgt_vec = tgt_word_vecs[tgt_word];
+            //cerr << "Here";
             /* Get context */
-            vector<int> context;
-            GetContext(src_words, src, src_ix, context_len, &context);
+            //vector<int> context;
+            //GetContext(src_words, src, src_ix, context_len, &context);
             ACol pred_tgt_vec;
-            model.TransVecInContext(src_word, context, src_word_vecs,
+            //model.TransVecInContext(src_word, context, src_word_vecs,
+            //                        &pred_tgt_vec);
+            model.TransVecInContext(src_word_vecs[src_word], sent_vec,
                                     &pred_tgt_vec);
             adouble error = NCELoss(pred_tgt_vec, tgt_word,
                                     tgt_word_vecs, model.tgt_word_bias.var,
@@ -412,7 +434,7 @@ void Train(const string& p_corpus, const string& a_corpus,
       cerr << "\nL2: " << model.L2() << endl;
       EvalDev(p_dev, a_dev, src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab,
               model, s);
-      model.WriteParamsToFile(outfilename + "_i" + to_string(i+1));
+      //model.WriteParamsToFile(outfilename + "_i" + to_string(i+1));
     } else {
       cerr << "\nUnable to open file\n";
       break;
@@ -468,6 +490,7 @@ Decode(const string& line, const vector<Col>& word_vecs,
 } */
 
 int main(int argc, char **argv){
+  adept::Stack s;
   if (argc == 13) {
     string parallel_corpus = argv[1];
     string align_corpus = argv[2];
@@ -502,7 +525,7 @@ int main(int argc, char **argv){
 
     Train(parallel_corpus, align_corpus, p_dev, a_dev, outfilename,
           context_len, hidden_len, noise_size, num_iter, reg_const,
-          src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab);
+          src_word_vecs, tgt_word_vecs, src_vocab, tgt_vocab, s);
   } else if (argc == 6) {
     /*
     adept::Stack s;
@@ -544,7 +567,7 @@ int main(int argc, char **argv){
     cerr << endl;
     cerr << "Usage: "<< argv[0] << " parallel_corpus alignment_corpus "
          << " src_vec_corpus tgt_vec_corpus context_len hidden_len noise_size "
-         << " num_iter outfilename\n";
+         << " num_iter reg_const outfilename\n";
   }
 
   return 1;

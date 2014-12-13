@@ -78,17 +78,15 @@ ARow TopKVals(ARow r, int k) {
   return res;
 }
 
-void GetContext(const vector<unsigned>& words, const vector<string>& words_raw,
+void GetContext(const vector<int>& words, const vector<string>& words_raw,
                 unsigned tgt_word_ix, int window_size,
-                mapIntUnsigned* t_context_words) {
-  mapIntUnsigned& context_words = *t_context_words;
-  context_words.clear();
+                vector<int>* context_words) {
+  context_words->clear();
   for (int i = -window_size; i <= window_size; ++i) {
     int word_index = i + tgt_word_ix;
     if (word_index >= 0 && word_index < words.size() &&
-        word_index != tgt_word_ix && words[word_index] != -1 &&
-        ConsiderForContext(words_raw[word_index])) {
-        context_words[i] = words[word_index];
+        word_index != tgt_word_ix && words[word_index] != -1) {
+        context_words->push_back(words[word_index]);
     }
   }
 }
@@ -162,10 +160,22 @@ void ReadVecsFromFile(const string& p_corpus, const int& column,
   if (vec_file.is_open()) {
     string line;
     vocab.clear();
+    int prev_vec_len = -1, vec_len = -1;
     while (getline(vec_file, line)) {
       vector<string> vector_stuff = split_line(line, ' ');
       string word = vector_stuff[0];
       auto it = train_vocab.find(word);
+      int vec_len = vector_stuff.size() - 1;
+      if (prev_vec_len == -1)
+        prev_vec_len = vec_len;
+      else if (prev_vec_len != vec_len) {
+        cerr << "Error in vector file" << endl;
+        exit(0);
+      } else {
+        prev_vec_len = vec_len;
+      }
+        
+         
       if (it != train_vocab.end()) {
         Col word_vec = Col::Zero(vector_stuff.size()-1);
         for (unsigned i = 0; i < word_vec.size(); ++i)
